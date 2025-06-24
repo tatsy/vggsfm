@@ -5,12 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import numpy as np
+import pycolmap
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-import numpy as np
-import pycolmap
 
 
 def batch_matrix_to_pycolmap(
@@ -149,10 +148,10 @@ def batch_matrix_to_pycolmap(
 
         try:
             image.points2D = pycolmap.ListPoint2D(points2D_list)
-            image.registered = True
+            # image.registered = True
         except:
             print(f"frame {fidx} is out of BA")
-            image.registered = False
+            # image.registered = False
 
         # add image
         reconstruction.add_image(image)

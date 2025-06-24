@@ -6,6 +6,8 @@ dependency/
 __pycache__/
 *.py[cod]
 *$py.class
+*.bin
+*.ply
 
 # C extensions
 *.so

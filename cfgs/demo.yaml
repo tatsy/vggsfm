@@ -7,11 +7,7 @@ model_name: "vggsfm_v2_0_0"
 
 seed: 0
 img_size: 1024
-
-
 debug: False
-
-
 center_order: False
 mixed_precision: fp16
 extract_color: True
@@ -34,6 +30,7 @@ fmat_thres: 4.0
 max_reproj_error: 4.0
 init_max_reproj_error: 4.0
 max_query_pts: 2048
+max_points_num: 65536
 
 dense_depth: False
 
@@ -103,6 +100,6 @@ MODEL:
 
 
     TRIANGULAE:
-        _target_: vggsfm.models.Triangulator    
+        _target_: vggsfm.models.Triangulator
 
 

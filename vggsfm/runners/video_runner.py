@@ -4,39 +4,31 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import torch
-import cv2
-import os
 import copy
-import time
-import math
-import random
-import pyceres
-import pycolmap
-import numpy as np
 import datetime
 import logging
-
+import math
+import os
+import random
+import time
 from collections import defaultdict
 
+import cv2
+import numpy as np
+import pyceres
+import pycolmap
+import torch
 
-from .runner import (
-    VGGSfMRunner,
-    move_to_device,
-    add_batch_dimension,
-    predict_tracks,
-    get_query_points,
-)
+from vggsfm.utils.align import align_camera_extrinsics, apply_transformation
+from vggsfm.utils.tensor_to_pycolmap import (batch_matrix_to_pycolmap,
+                                             pycolmap_to_batch_matrix)
+from vggsfm.utils.triangulation import triangulate_tracks
+from vggsfm.utils.triangulation_helpers import (cam_from_img,
+                                                filter_all_points3D)
 from vggsfm.utils.utils import average_camera_prediction, generate_grid_samples
 
-from vggsfm.utils.tensor_to_pycolmap import (
-    batch_matrix_to_pycolmap,
-    pycolmap_to_batch_matrix,
-)
-from vggsfm.utils.align import align_camera_extrinsics, apply_transformation
-
-from vggsfm.utils.triangulation import triangulate_tracks
-from vggsfm.utils.triangulation_helpers import filter_all_points3D, cam_from_img
+from .runner import (VGGSfMRunner, add_batch_dimension, get_query_points,
+                     move_to_device, predict_tracks)
 
 
 class VideoRunner(VGGSfMRunner):
@@ -594,10 +586,10 @@ class VideoRunner(VGGSfMRunner):
 
             try:
                 pyimg.points2D = pycolmap.ListPoint2D(points2D_list)
-                pyimg.registered = True
+                # pyimg.registered = True
             except:
                 print(f"frame {image_idx} is out of BA")
-                pyimg.registered = False
+                # pyimg.registered = False
 
             reconstruction.add_image(pyimg)
 
@@ -988,7 +980,7 @@ class VideoRunner(VGGSfMRunner):
                 estoptions = pycolmap.AbsolutePoseEstimationOptions()
                 estoptions.ransac.max_error = 12
 
-                estanswer = pycolmap.absolute_pose_estimation(
+                estanswer = pycolmap.estimate_and_refine_absolute_pose(
                     points2D[inlier_mask],
                     points3D[inlier_mask],
                     pycam,
@@ -998,7 +990,7 @@ class VideoRunner(VGGSfMRunner):
                 cam_from_world = estanswer["cam_from_world"]
                 print(estanswer["inliers"].mean())
 
-            answer = pycolmap.pose_refinement(
+            answer = pycolmap.refine_absolute_pose(
                 cam_from_world,
                 points2D,
                 points3D,

@@ -5,40 +5,28 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import torch
 import numpy as np
 import pycolmap
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast
 
-
-from torch.cuda.amp import autocast
-
-from .tensor_to_pycolmap import (
-    batch_matrix_to_pycolmap,
-    pycolmap_to_batch_matrix,
-)
-
+from ..two_view_geo.utils import calculate_depth_batch, calculate_residual_indicator
+from .tensor_to_pycolmap import batch_matrix_to_pycolmap, pycolmap_to_batch_matrix
 from .triangulation_helpers import (
-    cam_from_img,
-    triangulate_multi_view_point_batched,
-    filter_all_points3D,
-    project_3D_points,
     calculate_normalized_angular_error_batched,
+    calculate_triangulation_angle,
     calculate_triangulation_angle_batched,
     calculate_triangulation_angle_exhaustive,
-    calculate_triangulation_angle,
+    cam_from_img,
     create_intri_matrix,
-    prepare_ba_options,
+    filter_all_points3D,
     generate_combinations,
     local_refinement_tri,
-)
-
-from ..two_view_geo.utils import (
-    calculate_depth_batch,
-    calculate_residual_indicator,
+    prepare_ba_options,
+    project_3D_points,
+    triangulate_multi_view_point_batched,
 )
 
 
@@ -73,9 +61,7 @@ def triangulate_by_pair(extrinsics, tracks_normalized, eps=1e-12):
     )
 
     extrinsics_pair = extrinsics_pair.reshape(B * (S - 1), 2, 3, 4)
-    tracks_normalized_pair = tracks_normalized_pair.reshape(
-        B * (S - 1), 2, N, 2
-    )
+    tracks_normalized_pair = tracks_normalized_pair.reshape(B * (S - 1), 2, N, 2)
 
     # triangulate
     points_3d_pair, cheirality_mask = triangulate_multi_view_point_from_tracks(
@@ -97,29 +83,21 @@ def triangulate_by_pair(extrinsics, tracks_normalized, eps=1e-12):
     baseline_length_squared = (project_center2 - project_center1).norm(
         dim=1
     ) ** 2  # B*(S-1)x1
-    ray_length_squared1 = (
-        points_3d_pair - project_center1.transpose(-2, -1)
-    ).norm(
+    ray_length_squared1 = (points_3d_pair - project_center1.transpose(-2, -1)).norm(
         dim=-1
     ) ** 2  # BxN
-    ray_length_squared2 = (
-        points_3d_pair - project_center2.transpose(-2, -1)
-    ).norm(
+    ray_length_squared2 = (points_3d_pair - project_center2.transpose(-2, -1)).norm(
         dim=-1
     ) ** 2  # BxN
 
     denominator = 2.0 * torch.sqrt(ray_length_squared1 * ray_length_squared2)
-    nominator = (
-        ray_length_squared1 + ray_length_squared2 - baseline_length_squared
-    )
+    nominator = ray_length_squared1 + ray_length_squared2 - baseline_length_squared
 
     # if denominator is zero, angle is zero
     # so we set nominator and denominator as one acos(1) = 0
     nonvalid = denominator <= eps
     nominator = torch.where(nonvalid, torch.ones_like(nominator), nominator)
-    denominator = torch.where(
-        nonvalid, torch.ones_like(denominator), denominator
-    )
+    denominator = torch.where(nonvalid, torch.ones_like(denominator), denominator)
 
     cos_angle = nominator / denominator
     cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
@@ -172,9 +150,7 @@ def init_BA(
     toBA_extrinsics = extrinsics[init_indices]
     toBA_intrinsics = intrinsics[init_indices]
 
-    toBA_extra_params = (
-        extra_params[init_indices] if extra_params is not None else None
-    )
+    toBA_extra_params = extra_params[init_indices] if extra_params is not None else None
     toBA_tracks = tracks[init_indices]
 
     # points_3d_pair and inlier has a shape of (S-1), *, *, ...
@@ -358,9 +334,7 @@ def refine_pose(
                     ]
                 )
             else:
-                raise ValueError(
-                    f"Camera type {camera_type} is not supported yet"
-                )
+                raise ValueError(f"Camera type {camera_type} is not supported yet")
 
             pycamera = pycolmap.Camera(
                 model=camera_type,
@@ -384,7 +358,7 @@ def refine_pose(
         estimate_abs_pose = False
 
         if inlier_mask.sum() > 100:
-            answer = pycolmap.pose_refinement(
+            answer = pycolmap.refine_absolute_pose(
                 cam_from_world,
                 points2D,
                 points3D,
@@ -407,10 +381,8 @@ def refine_pose(
             inlier_mask = inlier_nongeo[ridx]
 
             if inlier_mask.sum() > 50:
-                print(
-                    f"Estimating absolute poses by visible matches for frame {ridx}"
-                )
-                estanswer = pycolmap.absolute_pose_estimation(
+                print(f"Estimating absolute poses by visible matches for frame {ridx}")
+                estanswer = pycolmap.estimate_and_refine_absolute_pose(
                     points2D[inlier_mask],
                     points3D[inlier_mask],
                     pycamera,
@@ -418,14 +390,14 @@ def refine_pose(
                     refoptions,
                 )
                 if estanswer is None:
-                    estanswer = pycolmap.absolute_pose_estimation(
+                    estanswer = pycolmap.estimate_and_refine_absolute_pose(
                         points2D, points3D, pycamera, estoptions, refoptions
                     )
             else:
                 print(
                     f"Warning! Estimating absolute poses by non visible matches for frame {ridx}"
                 )
-                estanswer = pycolmap.absolute_pose_estimation(
+                estanswer = pycolmap.estimate_and_refine_absolute_pose(
                     points2D, points3D, pycamera, estoptions, refoptions
                 )
 
@@ -447,25 +419,26 @@ def refine_pose(
     refined_intrinsics = torch.from_numpy(np.stack(refined_intrinsics)).to(
         tracks.device
     )
-    
+
     if extra_params is not None:
-        refined_extra_params = torch.from_numpy(
-            np.stack(refined_extra_params)
-        ).to(tracks.device)
+        refined_extra_params = torch.from_numpy(np.stack(refined_extra_params)).to(
+            tracks.device
+        )
         if len(refined_extra_params.shape) == 1:
             refined_extra_params = refined_extra_params[:, None]
 
-
-    valid_frame_mask = get_valid_frame_mask(refined_intrinsics, refined_extrinsics, refined_extra_params, scale)
+    valid_frame_mask = get_valid_frame_mask(
+        refined_intrinsics, refined_extrinsics, refined_extra_params, scale
+    )
 
     if (~valid_frame_mask).sum() > 0:
         print("some frames are invalid after BA refinement")
-        refined_extrinsics[~valid_frame_mask] = extrinsics[
-            ~valid_frame_mask
-        ].to(refined_extrinsics.dtype)
-        refined_intrinsics[~valid_frame_mask] = intrinsics[
-            ~valid_frame_mask
-        ].to(refined_extrinsics.dtype)
+        refined_extrinsics[~valid_frame_mask] = extrinsics[~valid_frame_mask].to(
+            refined_extrinsics.dtype
+        )
+        refined_intrinsics[~valid_frame_mask] = intrinsics[~valid_frame_mask].to(
+            refined_extrinsics.dtype
+        )
         if extra_params is not None:
             refined_extra_params[~valid_frame_mask] = extra_params[
                 ~valid_frame_mask
@@ -559,9 +532,7 @@ def init_refine_pose(
                     ]
                 )
             else:
-                raise ValueError(
-                    f"Camera type {camera_type} is not supported yet"
-                )
+                raise ValueError(f"Camera type {camera_type} is not supported yet")
 
             pycamera = pycolmap.Camera(
                 model=camera_type,
@@ -587,7 +558,7 @@ def init_refine_pose(
             if inlier_mask.sum() > 50:
                 # If too few inliers, ignore it
                 # Bundle adjustment without optimizing 3D point
-                answer = pycolmap.pose_refinement(
+                answer = pycolmap.refine_absolute_pose(
                     cam_from_world,
                     points2D,
                     points3D,
@@ -615,25 +586,26 @@ def init_refine_pose(
         tracks.device
     )
     if extra_params is not None:
-        refined_extra_params = torch.from_numpy(
-            np.stack(refined_extra_params)
-        ).to(tracks.device)
+        refined_extra_params = torch.from_numpy(np.stack(refined_extra_params)).to(
+            tracks.device
+        )
         if len(refined_extra_params.shape) == 1:
             refined_extra_params = refined_extra_params[:, None]
 
-
     scale = image_size.max()
 
-    valid_frame_mask = get_valid_frame_mask(refined_intrinsics, refined_extrinsics, refined_extra_params, scale)
+    valid_frame_mask = get_valid_frame_mask(
+        refined_intrinsics, refined_extrinsics, refined_extra_params, scale
+    )
 
     if (~valid_frame_mask).sum() > 0:
         print("some frames are invalid after BA refinement")
-        refined_extrinsics[~valid_frame_mask] = extrinsics[
-            ~valid_frame_mask
-        ].to(refined_extrinsics.dtype)
-        refined_intrinsics[~valid_frame_mask] = intrinsics[
-            ~valid_frame_mask
-        ].to(refined_extrinsics.dtype)
+        refined_extrinsics[~valid_frame_mask] = extrinsics[~valid_frame_mask].to(
+            refined_extrinsics.dtype
+        )
+        refined_intrinsics[~valid_frame_mask] = intrinsics[~valid_frame_mask].to(
+            refined_extrinsics.dtype
+        )
         if extra_params is not None:
             refined_extra_params[~valid_frame_mask] = extra_params[
                 ~valid_frame_mask
@@ -647,10 +619,8 @@ def init_refine_pose(
     )
 
 
-def triangulate_multi_view_point_from_tracks(
-    cams_from_world, tracks, mask=None
-):
-    with autocast(dtype=torch.float32):
+def triangulate_multi_view_point_from_tracks(cams_from_world, tracks, mask=None):
+    with autocast(device_type="cuda", dtype=torch.float32):
         B, S, _, _ = cams_from_world.shape
         _, _, N, _ = tracks.shape  # B S N 2
         tracks = tracks.permute(0, 2, 1, 3)
@@ -662,10 +632,8 @@ def triangulate_multi_view_point_from_tracks(
         cams_from_world = cams_from_world[:, None].expand(-1, N, -1, -1, -1)
         cams_from_world = cams_from_world.reshape(B * N, S, 3, 4)
 
-        (points3d, invalid_cheirality_mask) = (
-            triangulate_multi_view_point_batched(
-                cams_from_world, tracks, mask, check_cheirality=True
-            )
+        (points3d, invalid_cheirality_mask) = triangulate_multi_view_point_batched(
+            cams_from_world, tracks, mask, check_cheirality=True
         )
 
         points3d = points3d.reshape(B, N, 3)
@@ -712,15 +680,11 @@ def triangulate_tracks(
     all_tri_points_num = extrinsics.shape[0] * tracks_normalized.shape[1]
 
     if all_tri_points_num > max_tri_points_num:
-        print('Triangulate tracks in chunks to fit in memory')
-        
-        num_splits = (
-            all_tri_points_num + max_tri_points_num - 1
-        ) // max_tri_points_num
+        print("Triangulate tracks in chunks to fit in memory")
 
-        split_tracks_normalized = torch.chunk(
-            tracks_normalized, num_splits, dim=1
-        )
+        num_splits = (all_tri_points_num + max_tri_points_num - 1) // max_tri_points_num
+
+        split_tracks_normalized = torch.chunk(tracks_normalized, num_splits, dim=1)
         split_track_vis = (
             torch.chunk(track_vis, num_splits, dim=1)
             if track_vis is not None
@@ -757,17 +721,15 @@ def triangulate_tracks(
         inlier_num = torch.cat(inlier_num_list, dim=0)
         inlier_mask = torch.cat(inlier_mask_list, dim=0)
     else:
-        triangulated_points, inlier_num, inlier_mask = (
-            triangulate_tracks_single_chunk(
-                extrinsics,
-                tracks_normalized,
-                max_ransac_iters,
-                lo_num,
-                max_angular_error,
-                min_tri_angle,
-                track_vis,
-                track_score,
-            )
+        triangulated_points, inlier_num, inlier_mask = triangulate_tracks_single_chunk(
+            extrinsics,
+            tracks_normalized,
+            max_ransac_iters,
+            lo_num,
+            max_angular_error,
+            min_tri_angle,
+            track_vis,
+            track_score,
         )
 
     return triangulated_points, inlier_num, inlier_mask
@@ -794,7 +756,7 @@ def triangulate_tracks_single_chunk(
     """
     max_rad_error = max_angular_error * (torch.pi / 180)
 
-    with autocast(dtype=torch.float32):
+    with autocast(device_type="cuda", dtype=torch.float32):
         tracks_normalized = tracks_normalized.transpose(0, 1)
         B, S, _ = tracks_normalized.shape
         extrinsics_expand = extrinsics[None].expand(B, -1, -1, -1)
@@ -808,9 +770,7 @@ def triangulate_tracks_single_chunk(
         if max_ransac_iters > len(ransac_idx):
             max_ransac_iters = len(ransac_idx)
         else:
-            ransac_idx = ransac_idx[
-                torch.randperm(len(ransac_idx))[:max_ransac_iters]
-            ]
+            ransac_idx = ransac_idx[torch.randperm(len(ransac_idx))[:max_ransac_iters]]
         lo_num = lo_num if max_ransac_iters >= lo_num else max_ransac_iters
 
         # Prepare the input
@@ -833,9 +793,7 @@ def triangulate_tracks_single_chunk(
             )
         )
 
-        triangulated_points = triangulated_points.reshape(
-            B, max_ransac_iters, 3
-        )
+        triangulated_points = triangulated_points.reshape(B, max_ransac_iters, 3)
         invalid_che_mask = invalid_che_mask.reshape(B, max_ransac_iters)
 
         # if any of the pair fits the minimum triangulation angle, we view it as valid
@@ -884,17 +842,15 @@ def triangulate_tracks_single_chunk(
 
         # Triangulate based on the inliers
         # and compute the errors
-        (lo_triangulated_points, _, lo_angular_error) = (
-            local_refine_and_compute_error(
-                tracks_normalized,
-                extrinsics,
-                extrinsics_expand,
-                inlier_mask,
-                lo_num,
-                min_tri_angle,
-                invalid_vis_conf_mask,
-                max_rad_error=max_rad_error,
-            )
+        (lo_triangulated_points, _, lo_angular_error) = local_refine_and_compute_error(
+            tracks_normalized,
+            extrinsics,
+            extrinsics_expand,
+            inlier_mask,
+            lo_num,
+            min_tri_angle,
+            invalid_vis_conf_mask,
+            max_rad_error=max_rad_error,
         )
 
         # Refine it again
@@ -922,9 +878,7 @@ def triangulate_tracks_single_chunk(
         lo_triangulated_points = torch.cat(
             [lo_triangulated_points, lo_triangulated_points_2], dim=1
         )
-        lo_angular_error = torch.cat(
-            [lo_angular_error, lo_angular_error_2], dim=1
-        )
+        lo_angular_error = torch.cat([lo_angular_error, lo_angular_error_2], dim=1)
         # lo_tri_angles = torch.cat([lo_tri_angles, lo_tri_angles_2], dim=1)
         #############################################################################
 
@@ -969,20 +923,16 @@ def local_refine_and_compute_error(
     B, S, _ = tracks_normalized.shape
 
     inlier_num = inlier_mask.sum(dim=-1)
-    sorted_values, sorted_indices = torch.sort(
-        inlier_num, dim=1, descending=True
-    )
+    sorted_values, sorted_indices = torch.sort(inlier_num, dim=1, descending=True)
 
     # local refinement
-    (lo_triangulated_points, lo_tri_masks, lo_invalid_che_mask) = (
-        local_refinement_tri(
-            tracks_normalized,
-            extrinsics_expand,
-            min_tri_angle,
-            inlier_mask,
-            sorted_indices,
-            lo_num=lo_num,
-        )
+    (lo_triangulated_points, lo_tri_masks, lo_invalid_che_mask) = local_refinement_tri(
+        tracks_normalized,
+        extrinsics_expand,
+        min_tri_angle,
+        inlier_mask,
+        sorted_indices,
+        lo_num=lo_num,
     )
 
     # lo_tri_masks = (lo_tri_angles >= min_tri_angle).any(dim=-1)
@@ -1006,13 +956,9 @@ def local_refine_and_compute_error(
     )
 
     # penalty to invalid points
-    lo_angular_error[lo_invalid_mask] = (
-        lo_angular_error[lo_invalid_mask] + torch.pi
-    )
+    lo_angular_error[lo_invalid_mask] = lo_angular_error[lo_invalid_mask] + torch.pi
 
-    lo_angular_error[
-        invalid_vis_conf_mask[:, None].expand(-1, lo_num, -1)
-    ] += torch.pi
+    lo_angular_error[invalid_vis_conf_mask[:, None].expand(-1, lo_num, -1)] += torch.pi
 
     return lo_triangulated_points, lo_tri_masks, lo_angular_error
 
@@ -1053,14 +999,10 @@ def global_BA(
 
     extrinsics_tmp = extrinsics.clone()
     intrinsics_tmp = intrinsics.clone()
-    extra_params_tmp = (
-        extra_params.clone() if extra_params is not None else None
-    )
+    extra_params_tmp = extra_params.clone() if extra_params is not None else None
 
-    (points3D_opt, extrinsics, intrinsics, extra_params) = (
-        pycolmap_to_batch_matrix(
-            reconstruction, device=BA_points.device, camera_type=camera_type
-        )
+    (points3D_opt, extrinsics, intrinsics, extra_params) = pycolmap_to_batch_matrix(
+        reconstruction, device=BA_points.device, camera_type=camera_type
     )
 
     if (intrinsics[:, 0, 0] < 0).any():
@@ -1092,19 +1034,15 @@ def iterative_global_BA(
 ):
     # normalize points from pixel
 
-    tracks_normalized_refined = cam_from_img(
-        pred_tracks, intrinsics, extra_params
-    )
+    tracks_normalized_refined = cam_from_img(pred_tracks, intrinsics, extra_params)
 
     # triangulate tracks by LORANSAC
-    (best_triangulated_points, best_inlier_num, best_inlier_mask) = (
-        triangulate_tracks(
-            extrinsics,
-            tracks_normalized_refined,
-            track_vis=pred_vis,
-            track_score=pred_score,
-            max_ransac_iters=128,
-        )
+    (best_triangulated_points, best_inlier_num, best_inlier_mask) = triangulate_tracks(
+        extrinsics,
+        tracks_normalized_refined,
+        track_vis=pred_vis,
+        track_score=pred_score,
+        max_ransac_iters=128,
     )
 
     best_triangulated_points[valid_tracks] = points3D_opt
@@ -1149,10 +1087,8 @@ def iterative_global_BA(
         extra_params.clone() if extra_params is not None else None
     )  # Clone extra_params if not None
 
-    (points3D_opt, extrinsics, intrinsics, extra_params) = (
-        pycolmap_to_batch_matrix(
-            reconstruction, device=pred_tracks.device, camera_type=camera_type
-        )
+    (points3D_opt, extrinsics, intrinsics, extra_params) = pycolmap_to_batch_matrix(
+        reconstruction, device=pred_tracks.device, camera_type=camera_type
     )
 
     if (intrinsics[:, 0, 0] < 0).any():
@@ -1174,9 +1110,7 @@ def iterative_global_BA(
         return_detail=True,
     )
 
-    valid_tracks_afterBA = (
-        filtered_inlier_mask.sum(dim=0) >= min_valid_track_length
-    )
+    valid_tracks_afterBA = filtered_inlier_mask.sum(dim=0) >= min_valid_track_length
     valid_tracks_tmp = valid_tracks.clone()
     valid_tracks_tmp[valid_tracks] = valid_tracks_afterBA
     valid_tracks = valid_tracks_tmp.clone()
@@ -1193,7 +1127,7 @@ def iterative_global_BA(
             image_size,
             shared_camera=shared_camera,
             camera_type=camera_type,
-            extra_params=extra_params, 
+            extra_params=extra_params,
         )
 
         reconstruction = filter_reconstruction(reconstruction)
@@ -1218,7 +1152,6 @@ def filter_reconstruction(reconstruction, filter_points=False):
     return reconstruction
 
 
-
 def get_valid_frame_mask(intrinsics, extrinsics, extra_params, scale):
     valid_param_mask = torch.logical_and(
         intrinsics[:, 0, 0] >= 0.1 * scale,
@@ -1238,5 +1171,5 @@ def get_valid_frame_mask(intrinsics, extrinsics, extra_params, scale):
     valid_trans_mask = (extrinsics[:, :, 3].abs() <= 30).all(-1)
 
     valid_frame_mask = torch.logical_and(valid_param_mask, valid_trans_mask)
-    
+
     return valid_frame_mask

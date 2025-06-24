@@ -5,26 +5,25 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import numpy as np
+import pycolmap
 import torch
 import torch.nn as nn
+from torch.amp import autocast
 
-import pycolmap
-import numpy as np
-from torch.cuda.amp import autocast
+from ..utils.triangulation import (
+    global_BA,
+    init_BA,
+    init_refine_pose,
+    iterative_global_BA,
+    refine_pose,
+    triangulate_by_pair,
+    triangulate_tracks,
+)
+from ..utils.triangulation_helpers import cam_from_img, filter_all_points3D
 
 # #####################
 from .utils import get_EFP
-
-from ..utils.triangulation import (
-    triangulate_by_pair,
-    init_BA,
-    init_refine_pose,
-    refine_pose,
-    triangulate_tracks,
-    global_BA,
-    iterative_global_BA,
-)
-from ..utils.triangulation_helpers import filter_all_points3D, cam_from_img
 
 
 class Triangulator(nn.Module):
@@ -71,7 +70,7 @@ class Triangulator(nn.Module):
 
         device = pred_tracks.device
 
-        with autocast(dtype=torch.float32):
+        with autocast(device_type="cuda", dtype=torch.float32):
             B, S, _, H, W = images.shape
             _, _, N, _ = pred_tracks.shape
 
@@ -79,9 +78,7 @@ class Triangulator(nn.Module):
                 B == 1
             )  # The released implementation now only supports batch=1 during inference
 
-            image_size = torch.tensor(
-                [W, H], dtype=pred_tracks.dtype, device=device
-            )
+            image_size = torch.tensor([W, H], dtype=pred_tracks.dtype, device=device)
             # extrinsics: B x S x 3 x 4
             # intrinsics: B x S x 3 x 3
             # focal_length, principal_point : B x S x 2
@@ -166,23 +163,21 @@ class Triangulator(nn.Module):
             # Basically it is a bundle adjustment without optmizing 3D points
             # It is fine even this step fails
 
-            (extrinsics, intrinsics, extra_params, valid_param_mask) = (
-                init_refine_pose(
-                    extrinsics,
-                    intrinsics,
-                    extra_params,
-                    inlier_geo_vis,
-                    points3D_init,
-                    pred_tracks,
-                    track_init_mask,
-                    image_size,
-                    init_idx,
-                    shared_camera=shared_camera,
-                    camera_type=camera_type,
-                )
+            (extrinsics, intrinsics, extra_params, valid_param_mask) = init_refine_pose(
+                extrinsics,
+                intrinsics,
+                extra_params,
+                inlier_geo_vis,
+                points3D_init,
+                pred_tracks,
+                track_init_mask,
+                image_size,
+                init_idx,
+                shared_camera=shared_camera,
+                camera_type=camera_type,
             )
-            print("Finished init refine pose")  
-            
+            print("Finished init refine pose")
+
             (
                 points3D,
                 extrinsics,
@@ -204,7 +199,6 @@ class Triangulator(nn.Module):
                 camera_type=camera_type,
             )
             print("Finished track triangulation and BA")
-
 
             if robust_refine > 0:
                 for refine_idx in range(robust_refine):
@@ -287,9 +281,9 @@ class Triangulator(nn.Module):
                     ba_options=ba_options,
                     camera_type=camera_type,
                 )
-                
+
                 print(f"Finished iterative BA {BA_iter}")
-                
+
                 max_reproj_error = max_reproj_error // 2
                 if max_reproj_error <= 1:
                     max_reproj_error = 1
@@ -310,9 +304,7 @@ class Triangulator(nn.Module):
                 )
 
             valid_trans_mask = (trans_BA.abs() <= 30).all(-1)
-            valid_frame_mask = torch.logical_and(
-                valid_param_mask, valid_trans_mask
-            )
+            valid_frame_mask = torch.logical_and(valid_param_mask, valid_trans_mask)
 
             valid_2D_mask = torch.ones_like(pred_tracks[..., 0]).bool()
             valid_2D_mask[:, ~valid_tracks] = False
@@ -321,22 +313,18 @@ class Triangulator(nn.Module):
             if extract_color:
                 from vggsfm.models.utils import sample_features4d
 
-                pred_track_rgb = sample_features4d(
-                    images.squeeze(0), pred_tracks
-                )
+                pred_track_rgb = sample_features4d(images.squeeze(0), pred_tracks)
 
                 valid_track_rgb = pred_track_rgb[:, valid_tracks]
 
-                sum_rgb = (
-                    BA_inlier_masks.float()[..., None] * valid_track_rgb
-                ).sum(dim=0)
+                sum_rgb = (BA_inlier_masks.float()[..., None] * valid_track_rgb).sum(
+                    dim=0
+                )
                 points3D_rgb = sum_rgb / BA_inlier_masks.sum(dim=0)[:, None]
 
                 if points3D_rgb.shape[0] == max(reconstruction.point3D_ids()):
                     for point3D_id in reconstruction.points3D:
-                        color_255 = (
-                            points3D_rgb[point3D_id - 1].cpu().numpy() * 255
-                        )
+                        color_255 = points3D_rgb[point3D_id - 1].cpu().numpy() * 255
                         reconstruction.points3D[point3D_id].color = np.round(
                             color_255
                         ).astype(np.uint8)
@@ -379,9 +367,7 @@ class Triangulator(nn.Module):
         """ """
         # Normalize the tracks
 
-        tracks_normalized_refined = cam_from_img(
-            pred_tracks, intrinsics, extra_params
-        )
+        tracks_normalized_refined = cam_from_img(pred_tracks, intrinsics, extra_params)
 
         # Conduct triangulation to all the frames
         # We adopt LORANSAC here again
@@ -399,19 +385,17 @@ class Triangulator(nn.Module):
         valid_tracks = best_inlier_num >= min_valid_track_length
 
         # Perform global bundle adjustment
-        (points3D, extrinsics, intrinsics, extra_params, reconstruction) = (
-            global_BA(
-                best_triangulated_points,
-                valid_tracks,
-                pred_tracks,
-                best_inlier_mask,
-                extrinsics,
-                intrinsics,
-                extra_params,
-                image_size,
-                shared_camera=shared_camera,
-                camera_type=camera_type,
-            )
+        (points3D, extrinsics, intrinsics, extra_params, reconstruction) = global_BA(
+            best_triangulated_points,
+            valid_tracks,
+            pred_tracks,
+            best_inlier_mask,
+            extrinsics,
+            intrinsics,
+            extra_params,
+            image_size,
+            shared_camera=shared_camera,
+            camera_type=camera_type,
         )
 
         valid_poins3D_mask, _ = filter_all_points3D(

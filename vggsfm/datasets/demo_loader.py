@@ -5,28 +5,27 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import os
 import glob
-import torch
-import pycolmap
-import numpy as np
-
-
+import os
 from typing import Optional
 
+import numpy as np
+import pycolmap
+import torch
 from PIL import Image, ImageFile
-from torchvision import transforms
 from torch.utils.data import Dataset
+from torchvision import transforms
+from tqdm.auto import tqdm
+from tqdm.contrib import tzip
 
 from minipytorch3d.cameras import PerspectiveCameras
 
 from .camera_transform import (
-    normalize_cameras,
     adjust_camera_to_bbox_crop_,
     adjust_camera_to_image_scale_,
     bbox_xyxy_to_xywh,
+    normalize_cameras,
 )
-
 
 Image.MAX_IMAGE_PIXELS = None
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -126,9 +125,7 @@ class DemoLoader(Dataset):
         calib_dict = {}
         for image_id, image in reconstruction.images.items():
             extrinsic = image.cam_from_world.matrix
-            intrinsic = reconstruction.cameras[
-                image.camera_id
-            ].calibration_matrix()
+            intrinsic = reconstruction.cameras[image.camera_id].calibration_matrix()
 
             R = torch.from_numpy(extrinsic[:, :3])
             T = torch.from_numpy(extrinsic[:, 3])
@@ -193,9 +190,11 @@ class DemoLoader(Dataset):
         if self.sort_by_filename:
             annos = sorted(annos, key=lambda x: x["img_path"])
 
-        images, masks, image_paths = self._load_images_and_masks(annos)
-        batch = self._prepare_batch(
-            sequence_name, metadata, annos, images, masks, image_paths
+        # images, masks, image_paths = self._load_images_and_masks(annos)
+        batch, image_paths = self._prepare_batch(
+            sequence_name,
+            metadata,
+            annos,
         )
 
         if return_path:
@@ -214,7 +213,7 @@ class DemoLoader(Dataset):
             tuple: Tuple containing lists of images, masks, and image paths.
         """
         images, masks, image_paths = [], [], []
-        for anno in annos:
+        for anno in tqdm(annos, desc="Loading images/masks"):
             image_path = anno["img_path"]
             image = Image.open(image_path).convert("RGB")
             images.append(image)
@@ -224,6 +223,7 @@ class DemoLoader(Dataset):
                 mask_path = image_path.replace(f"/{self.prefix}", "/masks")
                 mask = Image.open(mask_path).convert("L")
                 masks.append(mask)
+
         return images, masks, image_paths
 
     def _prepare_batch(
@@ -231,9 +231,6 @@ class DemoLoader(Dataset):
         sequence_name: str,
         metadata: list,
         annos: list,
-        images: list,
-        masks: list,
-        image_paths: list,
     ) -> dict:
         """
         Prepare a batch of data for a given sequence.
@@ -255,18 +252,25 @@ class DemoLoader(Dataset):
         """
         batch = {"seq_name": sequence_name, "frame_num": len(metadata)}
         crop_parameters, images_transformed, masks_transformed = [], [], []
-        original_images = (
-            {}
-        )  # Dictionary to store original images before any transformations
 
         if self.load_gt:
             new_fls, new_pps = [], []
 
-        for i, (anno, image) in enumerate(zip(annos, images)):
-            mask = masks[i] if self.have_mask else None
+        images_transformed = []
+        masks_transformed = []
+        image_paths = []
+        for i, anno in enumerate(tqdm(annos, desc="Preparing batches")):
+            image_path = anno["img_path"]
+            image = Image.open(image_path).convert("RGB")
+            image_paths.append(image_path)
+            if self.have_mask:
+                mask_path = image_path.replace(f"/{self.prefix}", "/masks")
+                mask = Image.open(mask_path).convert("L")
+            else:
+                mask = None
 
             # Store the original image in the dictionary with the basename of the image path as the key
-            original_images[os.path.basename(image_paths[i])] = np.array(image)
+            # original_images[os.path.basename(image_paths[i])] = np.array(image)
 
             # Transform the image and mask, and get crop parameters and bounding box
             (image_transformed, mask_transformed, crop_paras, bbox) = (
@@ -293,13 +297,11 @@ class DemoLoader(Dataset):
                         bbox_xywh,
                     )
                 )
-                (new_focal_length, new_principal_point) = (
-                    adjust_camera_to_image_scale_(
-                        focal_length_cropped,
-                        principal_point_cropped,
-                        torch.FloatTensor(image.size),
-                        torch.FloatTensor([self.img_size, self.img_size]),
-                    )
+                (new_focal_length, new_principal_point) = adjust_camera_to_image_scale_(
+                    focal_length_cropped,
+                    principal_point_cropped,
+                    torch.FloatTensor(image.size),
+                    torch.FloatTensor([self.img_size, self.img_size]),
                 )
                 new_fls.append(new_focal_length)
                 new_pps.append(new_principal_point)
@@ -316,11 +318,10 @@ class DemoLoader(Dataset):
                 "crop_params": torch.stack(crop_parameters),
                 "scene_dir": os.path.dirname(os.path.dirname(image_paths[0])),
                 "masks": masks.clamp(0, 1) if self.have_mask else None,
-                "original_images": original_images,  # A dict with the image path as the key and the original np image as the value
             }
         )
 
-        return batch
+        return batch, image_paths
 
     def _prepare_gt_camera_batch(
         self, annos: list, new_fls: list, new_pps: list
@@ -368,9 +369,7 @@ class DemoLoader(Dataset):
         if self.normalize_cameras:
             normalized_cameras, _ = normalize_cameras(cameras, points=None)
             if normalized_cameras == -1:
-                raise RuntimeError(
-                    "Error in normalizing cameras: camera scale was 0"
-                )
+                raise RuntimeError("Error in normalizing cameras: camera scale was 0")
 
             batch.update(
                 {

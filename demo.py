@@ -5,12 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import torch
 import hydra
+import torch
 from omegaconf import DictConfig, OmegaConf
 
-from vggsfm.runners.runner import VGGSfMRunner
 from vggsfm.datasets.demo_loader import DemoLoader
+from vggsfm.runners.runner import VGGSfMRunner
 from vggsfm.utils.utils import seed_all_random_engines
 
 
@@ -50,28 +50,24 @@ def demo_fn(cfg: DictConfig):
 
     # Load the data for the selected sequence
     batch, image_paths = test_dataset.get_data(
-        sequence_name=seq_name, return_path=True
+        sequence_name=seq_name,
+        return_path=True,
     )
 
-    output_dir = batch[
-        "scene_dir"
-    ]  # which is also cfg.SCENE_DIR for DemoLoader
-
+    output_dir = batch["scene_dir"]  # which is also cfg.SCENE_DIR for DemoLoader
     images = batch["image"]
     masks = batch["masks"] if batch["masks"] is not None else None
-    crop_params = (
-        batch["crop_params"] if batch["crop_params"] is not None else None
-    )
+    crop_params = batch["crop_params"] if batch["crop_params"] is not None else None
 
     # Cache the original images for visualization, so that we don't need to re-load many times
-    original_images = batch["original_images"]
+    # original_images = batch["original_images"]
 
     # Run VGGSfM
     # Both visualization and output writing are performed inside VGGSfMRunner
     predictions = vggsfm_runner.run(
         images,
         masks=masks,
-        original_images=original_images,
+        # original_images=original_images,
         image_paths=image_paths,
         crop_params=crop_params,
         seq_name=seq_name,

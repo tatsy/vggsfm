@@ -7,33 +7,30 @@
 
 # Adapted from https://github.com/kornia
 
-from typing import Literal, Optional, Tuple
+from typing import Tuple
+
 import numpy as np
 import torch
-import cv2
-import math
 
 # Importing Kornia core functionalities
 from kornia.core import Tensor, concatenate, ones_like, stack, where, zeros
-from kornia.core.check import KORNIA_CHECK_SHAPE, KORNIA_CHECK_IS_TENSOR
+from kornia.core.check import KORNIA_CHECK_IS_TENSOR, KORNIA_CHECK_SHAPE
 
 # Importing Kornia geometry functionalities
 from kornia.geometry.conversions import (
     convert_points_from_homogeneous,
     convert_points_to_homogeneous,
 )
-from kornia.geometry.linalg import transform_points
-from kornia.geometry.solvers import solve_cubic
 from kornia.geometry.epipolar.fundamental import (
     normalize_points,
     normalize_transformation,
 )
-
-# Importing PyTorch functionalities
-from torch.cuda.amp import autocast
+from kornia.geometry.linalg import transform_points
+from kornia.geometry.solvers import solve_cubic
 
 # Importing Kornia utils
 from kornia.utils._compat import torch_version_ge
+from torch.amp import autocast
 
 
 def generate_samples(N, target_num, sample_num, expand_ratio=2):
@@ -48,9 +45,7 @@ def generate_samples(N, target_num, sample_num, expand_ratio=2):
     Returns:
     np.array: An array of indices without duplicates.
     """
-    sample_idx = np.random.randint(
-        0, N, size=(target_num * expand_ratio, sample_num)
-    )
+    sample_idx = np.random.randint(0, N, size=(target_num * expand_ratio, sample_num))
     sorted_array = np.sort(sample_idx, axis=1)
     diffs = np.diff(sorted_array, axis=1)
     has_duplicates = (diffs == 0).any(axis=1)
@@ -63,7 +58,7 @@ def generate_samples(N, target_num, sample_num, expand_ratio=2):
 def calculate_residual_indicator(
     residuals, max_residual, debug=False, check=False, nanvalue=1e6
 ):
-    with autocast(dtype=torch.double):
+    with autocast(device_type="cuda", dtype=torch.double):
         B, S, N = residuals.shape
         inlier_mask = residuals <= max_residual
 
@@ -119,7 +114,7 @@ def sampson_epipolar_distance_batched(
     dtype = pts1.dtype
     efficient_dtype = torch.float32
 
-    with autocast(dtype=efficient_dtype):
+    with autocast(device_type="cuda", dtype=efficient_dtype):
         if pts1.shape[-1] == 2:
             pts1 = convert_points_to_homogeneous(pts1)
 
@@ -130,12 +125,8 @@ def sampson_epipolar_distance_batched(
         B, K, _, _ = Fm.shape
         N = pts1.shape[1]
 
-        pts1_expanded = pts1[:, None, :, :].expand(
-            -1, K, -1, -1
-        )  # Shape: (B, K, N, 3)
-        pts2_expanded = pts2[:, None, :, :].expand(
-            -1, K, -1, -1
-        )  # Shape: (B, K, N, 3)
+        pts1_expanded = pts1[:, None, :, :].expand(-1, K, -1, -1)  # Shape: (B, K, N, 3)
+        pts2_expanded = pts2[:, None, :, :].expand(-1, K, -1, -1)  # Shape: (B, K, N, 3)
 
         Fm = Fm.to(efficient_dtype)
         F_t = Fm.transpose(-2, -1)  # Shape: (B, K, 3, 3)
@@ -152,9 +143,7 @@ def sampson_epipolar_distance_batched(
         if evaluation:
             torch.cuda.empty_cache()
 
-        numerator = (
-            (pts2_expanded * line1_in_2).sum(dim=-1).pow(2)
-        )  # Shape: (B, K, N)
+        numerator = (pts2_expanded * line1_in_2).sum(dim=-1).pow(2)  # Shape: (B, K, N)
         denominator = line1_in_2[..., :2].norm(2, dim=-1).pow(2) + line2_in_1[
             ..., :2
         ].norm(2, dim=-1).pow(
@@ -187,9 +176,7 @@ def normalize_points_masked(
         Tuple containing the normalized points in the shape (B, N, 2) and the transformation matrix in the shape (B, 3, 3).
     """
     if len(points.shape) != 3 or points.shape[-1] != 2:
-        raise ValueError(
-            f"Expected points with shape (B, N, 2), got {points.shape}"
-        )
+        raise ValueError(f"Expected points with shape (B, N, 2), got {points.shape}")
 
     if masks is None:
         masks = ones_like(points[..., 0])
@@ -205,9 +192,7 @@ def normalize_points_masked(
 
     # Compute mean only over masked (non-zero) points
     num_valid_points = mask_f.sum(dim=1, keepdim=True)  # Bx1x1
-    x_mean = masked_points.sum(dim=1, keepdim=True) / (
-        num_valid_points + eps
-    )  # Bx1x2
+    x_mean = masked_points.sum(dim=1, keepdim=True) / (num_valid_points + eps)  # Bx1x2
 
     diffs = (
         masked_points - x_mean
@@ -322,21 +307,15 @@ def inlier_by_fundamental(fmat, tracks, max_error=0.5):
     return inlier_mask
 
 
-def remove_cheirality(
-    R, t, points1, points2, focal_length=None, principal_point=None
-):
+def remove_cheirality(R, t, points1, points2, focal_length=None, principal_point=None):
     # TODO: merge this function with triangulation utils
-    with autocast(dtype=torch.double):
+    with autocast(device_type="cuda", dtype=torch.double):
         if focal_length is not None:
             principal_point = principal_point.unsqueeze(1)
             focal_length = focal_length.unsqueeze(1)
 
-            points1 = (points1 - principal_point[..., :2]) / focal_length[
-                ..., :2
-            ]
-            points2 = (points2 - principal_point[..., 2:]) / focal_length[
-                ..., 2:
-            ]
+            points1 = (points1 - principal_point[..., :2]) / focal_length[..., :2]
+            points2 = (points2 - principal_point[..., 2:]) / focal_length[..., 2:]
 
         B, cheirality_dim, _, _ = R.shape
         Bche = B * cheirality_dim
@@ -418,21 +397,15 @@ def check_cheirality_batch(R, t, points1, points2):
     B, N, _ = points1.shape
     assert points1.shape == points2.shape
 
-    proj_matrix1 = torch.eye(3, 4, dtype=R.dtype, device=R.device).expand(
-        B, -1, -1
-    )
+    proj_matrix1 = torch.eye(3, 4, dtype=R.dtype, device=R.device).expand(B, -1, -1)
     proj_matrix2 = torch.zeros(B, 3, 4, dtype=R.dtype, device=R.device)
     proj_matrix2[:, :, :3] = R
     proj_matrix2[:, :, 3] = t
 
     kMinDepth = torch.finfo(R.dtype).eps
-    max_depth = 1000.0 * torch.linalg.norm(
-        R.transpose(-2, -1) @ t[:, :, None], dim=1
-    )
+    max_depth = 1000.0 * torch.linalg.norm(R.transpose(-2, -1) @ t[:, :, None], dim=1)
 
-    points3D = triangulate_point_batch(
-        proj_matrix1, proj_matrix2, points1, points2
-    )
+    points3D = triangulate_point_batch(proj_matrix1, proj_matrix2, points1, points2)
 
     depths1 = calculate_depth_batch(proj_matrix1, points3D)
     depths2 = calculate_depth_batch(proj_matrix2, points3D)
@@ -561,18 +534,14 @@ def oneway_transfer_error_batched(
     B, K, _, _ = H.shape
     N = pts1.shape[1]
 
-    pts1_expanded = pts1[:, None, :, :].expand(
-        -1, K, -1, -1
-    )  # Shape: (B, K, N, 3)
+    pts1_expanded = pts1[:, None, :, :].expand(-1, K, -1, -1)  # Shape: (B, K, N, 3)
 
     H_transpose = H.permute(0, 1, 3, 2)
 
     pts1_in_2_h = torch.einsum("bkij,bkjn->bkin", pts1_expanded, H_transpose)
 
     pts1_in_2 = convert_points_from_homogeneous(pts1_in_2_h)
-    pts2_expanded = pts2[:, None, :, :].expand(
-        -1, K, -1, -1
-    )  # Shape: (B, K, N, 2)
+    pts2_expanded = pts2[:, None, :, :].expand(-1, K, -1, -1)  # Shape: (B, K, N, 2)
 
     error_squared = (pts1_in_2 - pts2_expanded).pow(2).sum(dim=-1)
 
