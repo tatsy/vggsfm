@@ -14,7 +14,6 @@ from collections import defaultdict
 import numpy as np
 import torch
 import pycolmap
-from visdom import Visdom
 from lightglue import SIFT, ALIKED, SuperPoint
 from torch.amp import autocast
 from hydra.utils import instantiate
@@ -41,20 +40,9 @@ from vggsfm.two_view_geo.estimate_preliminary import estimate_preliminary_camera
 
 # Optional imports
 try:
-    import poselib
-
     from vggsfm.two_view_geo.estimate_preliminary import estimate_preliminary_cameras_poselib
-
-    print("Poselib is available")
-except:
+except ImportError:
     print("Poselib is not installed. Please disable use_poselib")
-
-try:
-    from pytorch3d.structures import Pointclouds
-    from pytorch3d.vis.plotly_vis import plot_scene
-    from pytorch3d.renderer.cameras import PerspectiveCameras as PerspectiveCamerasVisual
-except:
-    print("PyTorch3d is not available. Please disable visdom.")
 
 
 class VGGSfMRunner:
@@ -80,9 +68,6 @@ class VGGSfMRunner:
 
         if cfg.dense_depth:
             self.build_monocular_depth_model()
-
-        if cfg.viz_visualize:
-            self.build_visdom()
 
         # Set up mixed precision
         assert cfg.mixed_precision in ("None", "bf16", "fp16")
@@ -146,12 +131,6 @@ class VGGSfMRunner:
         depth_model.load_state_dict(checkpoint)
         self.depth_model = depth_model.to(self.device).eval()
         print(f"DepthAnythingV2 built successfully")
-
-    def build_visdom(self):
-        """
-        Set up a Visdom server for visualization.
-        """
-        self.viz = Visdom()
 
     def run(
         self,

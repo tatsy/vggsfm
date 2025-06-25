@@ -6,6 +6,7 @@
 
 
 import logging
+import warnings
 
 import numpy as np
 import torch
@@ -199,16 +200,19 @@ class CameraPredictor(nn.Module):
 
         return pose_predictions
 
-    def get_backbone(self, backbone):
+    def get_backbone(self, backbone: str):
         """
         Load the backbone model.
         """
-        if backbone == "dinov2s":
-            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
-        elif backbone == "dinov2b":
-            return torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
-        else:
-            raise NotImplementedError(f"Backbone '{backbone}' not implemented")
+        print(f"Loading backbone: {backbone}")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            if backbone == "dinov2s":
+                return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
+            elif backbone == "dinov2b":
+                return torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
+            else:
+                raise NotImplementedError(f"Backbone '{backbone}' not implemented")
 
     def _resnet_normalize_image(self, img: torch.Tensor) -> torch.Tensor:
         return (img - self._resnet_mean) / self._resnet_std

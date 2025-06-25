@@ -24,18 +24,14 @@ camera_type: "SIMPLE_PINHOLE" # optional: ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]
 load_gt: False
 viz_visualize: False
 gr_visualize: False
-
 fmat_thres: 4.0
 max_reproj_error: 4.0
 init_max_reproj_error: 4.0
 max_query_pts: 2048
-max_points_num: 65536
-
+max_points_num: 32768
 dense_depth: False
-
 avg_pose: True
 shared_camera: False
-
 save_to_disk: True
 SCENE_DIR: examples/kitchen
 
