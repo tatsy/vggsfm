@@ -4,14 +4,11 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import random
+
 import numpy as np
 import torch
 
-from minipytorch3d.rotation_conversions import (
-    matrix_to_quaternion,
-    quaternion_to_matrix,
-)
+from minipytorch3d.rotation_conversions import matrix_to_quaternion
 
 
 def quaternion_from_matrix(matrix, isprecise=False):
@@ -71,7 +68,7 @@ def quaternion_from_matrix(matrix, isprecise=False):
             q[j] = M[i, j] + M[j, i]
             q[k] = M[k, i] + M[i, k]
             q[3] = M[k, j] - M[j, k]
-        q *= 0.5 / math.sqrt(t * M[3, 3])
+        q *= 0.5 / np.sqrt(t * M[3, 3])
     else:
         m00 = M[0, 0]
         m01 = M[0, 1]
@@ -198,7 +195,7 @@ def calculate_auc(r_error, t_error, max_threshold=30, return_list=False):
     max_errors, _ = torch.max(error_matrix, dim=1)
 
     # Define histogram bins
-    bins = torch.arange(max_threshold + 1)
+    # bins = torch.arange(max_threshold + 1)
 
     # Calculate histogram of maximum error values
     histogram = torch.histc(
@@ -220,12 +217,8 @@ def calculate_auc(r_error, t_error, max_threshold=30, return_list=False):
 
 def batched_all_pairs(B, N):
     # B, N = se3.shape[:2]
-    i1_, i2_ = torch.combinations(
-        torch.arange(N), 2, with_replacement=False
-    ).unbind(-1)
-    i1, i2 = [
-        (i[None] + torch.arange(B)[:, None] * N).reshape(-1) for i in [i1_, i2_]
-    ]
+    i1_, i2_ = torch.combinations(torch.arange(N), 2, with_replacement=False).unbind(-1)
+    i1, i2 = [(i[None] + torch.arange(B)[:, None] * N).reshape(-1) for i in [i1_, i2_]]
 
     return i1, i2
 
@@ -259,11 +252,14 @@ def closed_form_inverse_OpenCV(se3, R=None, T=None):
     # -R^T t
     top_right = -R_transposed.bmm(T)
 
-    inverted_matrix = torch.eye(4, 4)[None].repeat(len(se3), 1, 1)
-    inverted_matrix = inverted_matrix.to(R.dtype).to(R.device)
+    inverted_matrix = (
+        torch.eye(4, 4, dtype=torch.float32, device=R.device)
+        .unsqueeze(0)
+        .repeat(len(se3), 1, 1)
+    )
 
-    inverted_matrix[:, :3, :3] = R_transposed
-    inverted_matrix[:, :3, 3:] = top_right
+    inverted_matrix[:, :3, :3] = R_transposed.type_as(R)
+    inverted_matrix[:, :3, 3:] = top_right.type_as(R)
 
     return inverted_matrix
 

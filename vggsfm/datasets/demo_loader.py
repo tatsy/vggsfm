@@ -5,26 +5,28 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import glob
 import os
+import glob
 from typing import Optional
 
+import cv2
 import numpy as np
-import pycolmap
 import torch
+import pycolmap
+import numpy.typing as npt
 from PIL import Image, ImageFile
-from torch.utils.data import Dataset
-from torchvision import transforms
 from tqdm.auto import tqdm
-from tqdm.contrib import tzip
+from torchvision import transforms
+from rich.progress import track
+from torch.utils.data import Dataset
 
 from minipytorch3d.cameras import PerspectiveCameras
 
 from .camera_transform import (
-    adjust_camera_to_bbox_crop_,
-    adjust_camera_to_image_scale_,
     bbox_xyxy_to_xywh,
     normalize_cameras,
+    adjust_camera_to_bbox_crop_,
+    adjust_camera_to_image_scale_,
 )
 
 Image.MAX_IMAGE_PIXELS = None
@@ -160,11 +162,11 @@ class DemoLoader(Dataset):
 
     def get_data(
         self,
-        index: Optional[int] = None,
-        sequence_name: Optional[str] = None,
-        ids: Optional[np.ndarray] = None,
+        index: int | None = None,
+        sequence_name: str | None = None,
+        ids: npt.NDArray[np.int64] | None = None,
         return_path: bool = False,
-    ) -> dict:
+    ):
         """
         Get data for a specific sequence or index.
 
@@ -190,7 +192,6 @@ class DemoLoader(Dataset):
         if self.sort_by_filename:
             annos = sorted(annos, key=lambda x: x["img_path"])
 
-        # images, masks, image_paths = self._load_images_and_masks(annos)
         batch, image_paths = self._prepare_batch(
             sequence_name,
             metadata,
@@ -202,36 +203,12 @@ class DemoLoader(Dataset):
 
         return batch
 
-    def _load_images_and_masks(self, annos: list) -> tuple:
-        """
-        Load images and masks from annotations.
-
-        Args:
-            annos (list): List of annotations.
-
-        Returns:
-            tuple: Tuple containing lists of images, masks, and image paths.
-        """
-        images, masks, image_paths = [], [], []
-        for anno in tqdm(annos, desc="Loading images/masks"):
-            image_path = anno["img_path"]
-            image = Image.open(image_path).convert("RGB")
-            images.append(image)
-            image_paths.append(image_path)
-
-            if self.have_mask:
-                mask_path = image_path.replace(f"/{self.prefix}", "/masks")
-                mask = Image.open(mask_path).convert("L")
-                masks.append(mask)
-
-        return images, masks, image_paths
-
     def _prepare_batch(
         self,
         sequence_name: str,
         metadata: list,
         annos: list,
-    ) -> dict:
+    ):
         """
         Prepare a batch of data for a given sequence.
 
@@ -261,11 +238,12 @@ class DemoLoader(Dataset):
         image_paths = []
         for i, anno in enumerate(tqdm(annos, desc="Preparing batches")):
             image_path = anno["img_path"]
-            image = Image.open(image_path).convert("RGB")
+            image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             image_paths.append(image_path)
             if self.have_mask:
                 mask_path = image_path.replace(f"/{self.prefix}", "/masks")
-                mask = Image.open(mask_path).convert("L")
+                mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
             else:
                 mask = None
 
@@ -288,20 +266,20 @@ class DemoLoader(Dataset):
             crop_parameters.append(crop_paras)
 
             if self.load_gt:
-                bbox_xywh = torch.FloatTensor(bbox_xyxy_to_xywh(bbox))
+                bbox_xywh = torch.tensor(bbox_xyxy_to_xywh(bbox), dtype=torch.float32)
                 (focal_length_cropped, principal_point_cropped) = (
                     adjust_camera_to_bbox_crop_(
                         anno["focal_length"],
                         anno["principal_point"],
-                        torch.FloatTensor(image.size),
+                        torch.tensor(image.size, dtype=torch.float32),
                         bbox_xywh,
                     )
                 )
                 (new_focal_length, new_principal_point) = adjust_camera_to_image_scale_(
                     focal_length_cropped,
                     principal_point_cropped,
-                    torch.FloatTensor(image.size),
-                    torch.FloatTensor([self.img_size, self.img_size]),
+                    torch.tensor(image.size, dtype=torch.float32),
+                    torch.tensor([self.img_size, self.img_size], dtype=torch.long),
                 )
                 new_fls.append(new_focal_length)
                 new_pps.append(new_principal_point)
@@ -317,14 +295,14 @@ class DemoLoader(Dataset):
                 "image": images.clamp(0, 1),
                 "crop_params": torch.stack(crop_parameters),
                 "scene_dir": os.path.dirname(os.path.dirname(image_paths[0])),
-                "masks": masks.clamp(0, 1) if self.have_mask else None,
+                "masks": masks.clamp(0, 1) if masks is not None else None,
             }
         )
 
         return batch, image_paths
 
     def _prepare_gt_camera_batch(
-        self, annos: list, new_fls: list, new_pps: list
+        self, annos: list, new_fls: list[torch.Tensor], new_pps: list[torch.Tensor]
     ) -> dict:
         """
 
@@ -410,7 +388,7 @@ def calculate_crop_parameters(image, bbox, crop_dim, img_size):
     """
     crop_center = (bbox[:2] + bbox[2:]) / 2
     # convert crop center to correspond to a "square" image
-    width, height = image.size
+    height, width = image.shape[:2]
     length = max(width, height)
     s = length / min(width, height)
     crop_center = crop_center + (length - np.array([width, height])) / 2
@@ -428,17 +406,18 @@ def calculate_crop_parameters(image, bbox, crop_dim, img_size):
             bbox_after[1],
             bbox_after[2],
             bbox_after[3],
-        ]
-    ).float()
+        ],
+        dtype=torch.float32,
+    )
     return crop_parameters
 
 
 def pad_and_resize_image(
-    image: Image.Image,
+    image: np.ndarray,
     crop_longest: bool,
     img_size,
-    mask: Optional[Image.Image] = None,
-    bbox_anno: Optional[np.array] = None,
+    mask: np.ndarray | None = None,
+    bbox_anno: np.ndarray | None = None,
     transform=None,
 ):
     """
@@ -457,7 +436,7 @@ def pad_and_resize_image(
             [transforms.ToTensor(), transforms.Resize(img_size, antialias=True)]
         )
 
-    w, h = image.width, image.height
+    h, w = image.shape[:2]
     if crop_longest:
         crop_dim = max(h, w)
         top = (h - crop_dim) // 2
@@ -482,7 +461,7 @@ def pad_and_resize_image(
     return image_transformed, mask_transformed, crop_paras, bbox
 
 
-def _crop_image(image, bbox, white_bg=False):
+def _crop_image(image: np.ndarray, bbox: np.ndarray, white_bg=False) -> np.ndarray:
     """
     Crop an image to a bounding box. When bbox is larger than the image, the image is padded.
 
@@ -494,18 +473,29 @@ def _crop_image(image, bbox, white_bg=False):
     Returns:
         PIL.Image.Image: Cropped image.
     """
-    if white_bg:
-        # Only support PIL Images
-        image_crop = Image.new(
-            "RGB", (bbox[2] - bbox[0], bbox[3] - bbox[1]), (255, 255, 255)
+    h, w = image.shape[:2]
+    new_h = bbox[3] - bbox[1]
+    new_w = bbox[2] - bbox[0]
+    bg = 1.0 if white_bg else 0.0
+    if new_h > h:
+        pad_t = (new_h - h) // 2
+        pad_b = new_h - h - pad_t
+        new_image = np.pad(
+            image, ((pad_t, pad_b), (0, 0), (0, 0)), mode="constant", constant_values=bg
         )
-        image_crop.paste(image, (-bbox[0], -bbox[1]))
     else:
-        image_crop = transforms.functional.crop(
-            image,
-            top=bbox[1],
-            left=bbox[0],
-            height=bbox[3] - bbox[1],
-            width=bbox[2] - bbox[0],
+        new_image = image[bbox[1] : bbox[3]]
+
+    if new_w > w:
+        pad_l = (new_w - w) // 2
+        pad_r = new_w - w - pad_l
+        new_image = np.pad(
+            new_image,
+            ((0, 0), (pad_l, pad_r), (0, 0)),
+            mode="constant",
+            constant_values=bg,
         )
-    return image_crop
+    else:
+        new_image = new_image[:, bbox[0] : bbox[2]]
+
+    return new_image

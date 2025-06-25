@@ -5,16 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 
+from functools import partial
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from functools import partial
 from torch import nn, einsum
-from einops import rearrange, repeat
-from einops.layers.torch import Rearrange, Reduce
-
+from einops import repeat, rearrange
 from hydra.utils import instantiate
+from einops.layers.torch import Reduce, Rearrange
+
 from .track_modules.refine_track import refine_track
 
 
@@ -28,7 +29,7 @@ class TrackerPredictor(nn.Module):
         corr_radius=4,
         latent_dim=128,
         cfg=None,
-        **extra_args
+        **extra_args,
     ):
         super(TrackerPredictor, self).__init__()
         """
@@ -45,20 +46,12 @@ class TrackerPredictor(nn.Module):
 
         # coarse predictor
         self.coarse_down_ratio = COARSE.down_ratio
-        self.coarse_fnet = instantiate(
-            COARSE.FEATURENET, _recursive_=False, stride=COARSE.stride, cfg=cfg
-        )
-        self.coarse_predictor = instantiate(
-            COARSE.PREDICTOR, _recursive_=False, stride=COARSE.stride, cfg=cfg
-        )
+        self.coarse_fnet = instantiate(COARSE.FEATURENET, _recursive_=False, stride=COARSE.stride, cfg=cfg)
+        self.coarse_predictor = instantiate(COARSE.PREDICTOR, _recursive_=False, stride=COARSE.stride, cfg=cfg)
 
         # fine predictor, forced to use stride = 1
-        self.fine_fnet = instantiate(
-            FINE.FEATURENET, _recursive_=False, stride=1, cfg=cfg
-        )
-        self.fine_predictor = instantiate(
-            FINE.PREDICTOR, _recursive_=False, stride=1, cfg=cfg
-        )
+        self.fine_fnet = instantiate(FINE.FEATURENET, _recursive_=False, stride=1, cfg=cfg)
+        self.fine_predictor = instantiate(FINE.PREDICTOR, _recursive_=False, stride=1, cfg=cfg)
 
     def forward(
         self,
@@ -130,26 +123,15 @@ class TrackerPredictor(nn.Module):
             np.array: The processed images.
         """
         batch_num, frame_num, image_dim, height, width = images.shape
-        assert (
-            batch_num == 1
-        ), "now we only support processing one scene during inference"
-        reshaped_image = images.reshape(
-            batch_num * frame_num, image_dim, height, width
-        )
+        assert batch_num == 1, "now we only support processing one scene during inference"
+        reshaped_image = images.reshape(batch_num * frame_num, image_dim, height, width)
         if self.coarse_down_ratio > 1:
             # whether or not scale down the input images to save memory
-            fmaps = self.coarse_fnet(
-                F.interpolate(
-                    reshaped_image,
-                    scale_factor=1 / self.coarse_down_ratio,
-                    mode="bilinear",
-                    align_corners=True,
-                )
-            )
+            factor = 1.0 / self.coarse_down_ratio
+            resized_image = F.interpolate(reshaped_image, scale_factor=factor, mode="bilinear", align_corners=True)
+            fmaps = self.coarse_fnet(resized_image)
         else:
             fmaps = self.coarse_fnet(reshaped_image)
-        fmaps = fmaps.reshape(
-            batch_num, frame_num, -1, fmaps.shape[-2], fmaps.shape[-1]
-        )
+        fmaps = fmaps.reshape(batch_num, frame_num, -1, fmaps.shape[-2], fmaps.shape[-1])
 
         return fmaps

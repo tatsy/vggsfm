@@ -1,7 +1,6 @@
 hydra:
-    run:
-        dir: .
-
+  job:
+    chdir: False
 
 model_name: "vggsfm_v2_0_0"
 
@@ -20,7 +19,7 @@ BA_iters: 1
 
 fine_tracking: True
 
-camera_type: "SIMPLE_PINHOLE"   # optional: ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]
+camera_type: "SIMPLE_PINHOLE" # optional: ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]
 
 load_gt: False
 viz_visualize: False
@@ -40,7 +39,7 @@ shared_camera: False
 save_to_disk: True
 SCENE_DIR: examples/kitchen
 
-resume_ckpt:  ckpt/vggsfm_v2_0_0.bin
+resume_ckpt: ckpt/vggsfm_v2_0_0.bin
 auto_download_ckpt: True
 
 query_method: "aliked"
@@ -55,7 +54,6 @@ visual_tracks: False
 visual_query_points: False
 visual_dense_point_cloud: False
 
-
 query_by_midpoint: False
 query_by_interval: False
 
@@ -64,42 +62,38 @@ extra_pt_pixel_interval: -1
 extra_by_neighbor: -1
 
 MODEL:
-    _target_: vggsfm.models.VGGSfM
+  _target_: vggsfm.models.VGGSfM
 
-    TRACK:
-        _target_: vggsfm.models.TrackerPredictor
+  TRACK:
+    _target_: vggsfm.models.TrackerPredictor
 
-        efficient_corr: False
+    efficient_corr: False
 
-        COARSE:
-            stride: 4
-            down_ratio: 2
-            FEATURENET:
-                _target_: vggsfm.models.BasicEncoder
+    COARSE:
+      stride: 4
+      down_ratio: 2
+      FEATURENET:
+        _target_: vggsfm.models.BasicEncoder
 
-            PREDICTOR:
-                _target_: vggsfm.models.BaseTrackerPredictor
+      PREDICTOR:
+        _target_: vggsfm.models.BaseTrackerPredictor
 
-        FINE:
-            FEATURENET:
-                _target_: vggsfm.models.ShallowEncoder
+    FINE:
+      FEATURENET:
+        _target_: vggsfm.models.ShallowEncoder
 
+      PREDICTOR:
+        _target_: vggsfm.models.BaseTrackerPredictor
+        depth: 4
+        corr_levels: 3
+        corr_radius: 3
+        latent_dim: 32
+        hidden_size: 256
+        fine: True
+        use_spaceatt: False
 
-            PREDICTOR:
-                _target_: vggsfm.models.BaseTrackerPredictor
-                depth: 4
-                corr_levels: 3
-                corr_radius: 3
-                latent_dim: 32
-                hidden_size: 256
-                fine: True
-                use_spaceatt: False
+  CAMERA:
+    _target_: vggsfm.models.CameraPredictor
 
-    CAMERA:
-        _target_: vggsfm.models.CameraPredictor
-
-
-    TRIANGULAE:
-        _target_: vggsfm.models.Triangulator
-
-
+  TRIANGULAE:
+    _target_: vggsfm.models.Triangulator

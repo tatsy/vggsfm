@@ -3233,4 +3233,4 @@ cpu = ["torch", "torchvision"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "1b4b1b7af6811e1e04dc874c0413c172b5aea217fd6ae95cb915d52d0465160e"
+content-hash = "c24bc49ccffed87f24eec686fc625969112fc0364b436c99d39a5aae2adbb9d5"

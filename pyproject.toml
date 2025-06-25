@@ -29,6 +29,7 @@ dependencies = [
     "torch (==2.7.0+cu126) ; extra != 'cpu'",
     "torchvision (==0.22.0+cu126) ; extra != 'cpu'",
     "xformers (==0.0.30) ; extra != 'cpu'",
+    "joblib (>=1.5.1,<2.0.0)",
 ]
 
 [project.optional-dependencies]
@@ -74,3 +75,37 @@ mypy = "^1.16.1"
 [build-system]
 requires = ["setuptools", "poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.isort]
+profile = "black"
+length_sort = true
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = false
+use_parentheses = true
+known_third_party = ["numpy", "torch", "wandb"]
+skip_glob = [
+  "**/build/**",
+  "**/.mypy_cache/**",
+  "**/.pytest_cache/**",
+  "**/.vscode/**",
+]
+
+[tool.mypy]
+python_version = "3.11"
+follow_imports = "silent"
+plugins = ["numpy.typing.mypy_plugin"]
+disallow_any_generics = true
+strict_optional = true
+check_untyped_defs = true
+allow_redefinition = true
+
+[tool.flake8]
+max-line-length = 120
+ignore = "Q000,E127,E203,E402,W503,W504"
+
+[tool.black]
+target-version = ["py311"]
+line-length = 120
+skip-string-normalization = true

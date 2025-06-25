@@ -5,59 +5,54 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import copy
-import datetime
 import os
 import sys
-import time
+import copy
+import datetime
 from collections import defaultdict
 
 import numpy as np
-import pycolmap
 import torch
-from hydra.utils import instantiate
-from lightglue import ALIKED, SIFT, SuperPoint
-from torch.amp import autocast
+import pycolmap
 from visdom import Visdom
+from lightglue import SIFT, ALIKED, SuperPoint
+from torch.amp import autocast
+from hydra.utils import instantiate
 
-from vggsfm.two_view_geo.estimate_preliminary import estimate_preliminary_cameras
-from vggsfm.utils.triangulation import triangulate_tracks
-from vggsfm.utils.triangulation_helpers import cam_from_img, filter_all_points3D
 from vggsfm.utils.utils import (
-    align_dense_depth_maps,
-    average_camera_prediction,
-    calculate_index_mappings,
-    create_video_with_reprojections,
-    extract_dense_depth_maps,
+    write_array,
+    sample_subrange,
+    switch_tensor_order,
     generate_grid_samples,
     generate_rank_by_dino,
+    align_dense_depth_maps,
+    calculate_index_mappings,
+    extract_dense_depth_maps,
+    average_camera_prediction,
     generate_rank_by_interval,
     generate_rank_by_midpoint,
-    sample_subrange,
     save_video_with_reprojections,
-    switch_tensor_order,
-    write_array,
+    create_video_with_reprojections,
 )
 from vggsfm.utils.visualizer import Visualizer
+from vggsfm.utils.triangulation import triangulate_tracks
+from vggsfm.utils.triangulation_helpers import cam_from_img, filter_all_points3D
+from vggsfm.two_view_geo.estimate_preliminary import estimate_preliminary_cameras
 
 # Optional imports
 try:
     import poselib
 
-    from vggsfm.two_view_geo.estimate_preliminary import (
-        estimate_preliminary_cameras_poselib,
-    )
+    from vggsfm.two_view_geo.estimate_preliminary import estimate_preliminary_cameras_poselib
 
     print("Poselib is available")
 except:
     print("Poselib is not installed. Please disable use_poselib")
 
 try:
-    from pytorch3d.renderer.cameras import (
-        PerspectiveCameras as PerspectiveCamerasVisual,
-    )
     from pytorch3d.structures import Pointclouds
     from pytorch3d.vis.plotly_vis import plot_scene
+    from pytorch3d.renderer.cameras import PerspectiveCameras as PerspectiveCamerasVisual
 except:
     print("PyTorch3d is not available. Please disable visdom.")
 
@@ -98,9 +93,7 @@ class VGGSfMRunner:
         }.get(cfg.mixed_precision, None)
 
         if self.dtype is None:
-            raise NotImplementedError(
-                f"dtype {cfg.mixed_precision} is not supported now"
-            )
+            raise NotImplementedError(f"dtype {cfg.mixed_precision} is not supported now")
 
         # Remove the pixels too close to the border
         self.remove_borders = 4
@@ -135,9 +128,7 @@ class VGGSfMRunner:
         """
         # Import DepthAnythingV2 inside the function to avoid unnecessary imports
 
-        parent_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..")
-        )
+        parent_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         sys.path.append(parent_path)
         from dependency.depth_any_v2.depth_anything_v2.dpt import DepthAnythingV2
 
@@ -148,7 +139,9 @@ class VGGSfMRunner:
             "out_channels": [256, 512, 1024, 1024],
         }
         depth_model = DepthAnythingV2(**model_config)
-        _DEPTH_ANYTHING_V2_URL = "https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth"
+        _DEPTH_ANYTHING_V2_URL = (
+            "https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth"
+        )
         checkpoint = torch.hub.load_state_dict_from_url(_DEPTH_ANYTHING_V2_URL)
         depth_model.load_state_dict(checkpoint)
         self.depth_model = depth_model.to(self.device).eval()
@@ -209,7 +202,7 @@ class VGGSfMRunner:
             crop_params = move_to_device(crop_params, self.device)
 
             # Add batch dimension if necessary
-            if len(images.shape) == 4:
+            if images.ndim == 4:
                 images = add_batch_dimension(images)
                 masks = add_batch_dimension(masks)
                 crop_params = add_batch_dimension(crop_params)
@@ -242,15 +235,11 @@ class VGGSfMRunner:
 
             # Extract sparse depth and point information if needed for further processing
             if self.cfg.dense_depth or self.cfg.make_reproj_video:
-                predictions = self.extract_sparse_depth_and_point_from_reconstruction(
-                    predictions
-                )
+                predictions = self.extract_sparse_depth_and_point_from_reconstruction(predictions)
 
             # Perform dense reconstruction if enabled
             if self.cfg.dense_depth:
-                predictions = self.dense_reconstruct(
-                    predictions, image_paths, original_images
-                )
+                predictions = self.dense_reconstruct(predictions, image_paths, original_images)
 
                 # Save the dense depth maps
                 if self.cfg.save_to_disk:
@@ -265,9 +254,7 @@ class VGGSfMRunner:
                 )
                 predictions["reproj_video"] = img_with_circles_list
                 if self.cfg.save_to_disk:
-                    self.save_reprojection_video(
-                        img_with_circles_list, video_size, output_dir
-                    )
+                    self.save_reprojection_video(img_with_circles_list, video_size, output_dir)
 
             # Visualize the 3D reconstruction if enabled
             if self.cfg.viz_visualize:
@@ -286,7 +273,7 @@ class VGGSfMRunner:
         query_frame_num=3,
         image_paths=None,
         seq_name=None,
-        output_dir=None,
+        output_dir="outputs",
         dtype=None,
         back_to_original_resolution=True,
     ):
@@ -317,7 +304,7 @@ class VGGSfMRunner:
         """
 
         print(f"Run Sparse Reconstruction for Scene {seq_name}")
-        batch_num, frame_num, image_dim, height, width = images.shape
+        batch_num, frame_num, image_dim, height, width = images.size()
         device = images.device
         reshaped_image = images.reshape(batch_num * frame_num, image_dim, height, width)
         visual_dir = os.path.join(output_dir, "visuals")
@@ -332,13 +319,9 @@ class VGGSfMRunner:
             if self.cfg.query_by_midpoint:
                 query_frame_indexes = generate_rank_by_midpoint(frame_num)
             elif self.cfg.query_by_interval:
-                query_frame_indexes = generate_rank_by_interval(
-                    frame_num, (frame_num // query_frame_num + 1)
-                )
+                query_frame_indexes = generate_rank_by_interval(frame_num, (frame_num // query_frame_num + 1))
             else:
-                query_frame_indexes = generate_rank_by_dino(
-                    reshaped_image, self.camera_predictor, frame_num
-                )
+                query_frame_indexes = generate_rank_by_dino(reshaped_image, self.camera_predictor, frame_num)
 
         # Extract base names from image paths
         image_paths = [os.path.basename(imgpath) for imgpath in image_paths]
@@ -349,25 +332,15 @@ class VGGSfMRunner:
             # The code below switchs the first frame (frame 0) to the most common frame
             center_frame_index = query_frame_indexes[0]
             if center_frame_index != 0:
-                center_order = calculate_index_mappings(
-                    center_frame_index, frame_num, device=device
-                )
+                center_order = calculate_index_mappings(center_frame_index, frame_num, device=device)
 
-                images, crop_params, masks = switch_tensor_order(
-                    [images, crop_params, masks], center_order, dim=1
-                )
-                reshaped_image = switch_tensor_order(
-                    [reshaped_image], center_order, dim=0
-                )[0]
+                images, crop_params, masks = switch_tensor_order([images, crop_params, masks], center_order, dim=1)
+                reshaped_image = switch_tensor_order([reshaped_image], center_order, dim=0)[0]
 
-                image_paths = [
-                    image_paths[i] for i in center_order.cpu().numpy().tolist()
-                ]
+                image_paths = [image_paths[i] for i in center_order.cpu().numpy().tolist()]
 
                 # Also update query_frame_indexes:
-                query_frame_indexes = [
-                    center_frame_index if x == 0 else x for x in query_frame_indexes
-                ]
+                query_frame_indexes = [center_frame_index if x == 0 else x for x in query_frame_indexes]
                 query_frame_indexes[0] = 0
 
         # Select only the specified number of query frames
@@ -384,23 +357,30 @@ class VGGSfMRunner:
                 query_indices=query_frame_indexes,
             )
         else:
-            pred_cameras = self.camera_predictor(reshaped_image, batch_size=batch_num)[
-                "pred_cameras"
-            ]
+            pred_cameras = self.camera_predictor(reshaped_image, batch_size=batch_num)["pred_cameras"]
 
         # Prepare image feature maps for tracker
-        fmaps_for_tracker = self.track_predictor.process_images_to_fmaps(images)
+        sub_batch_size = 4
+        num_frames = images.size(1)
+        fmaps_for_tracker = []
+        for i in range(0, num_frames, sub_batch_size):
+            end = min(i + sub_batch_size, num_frames)
+            image_batch = images[:, i:end]
+            fmaps_i = self.track_predictor.process_images_to_fmaps(image_batch)
+            fmaps_for_tracker.append(fmaps_i)
+        fmaps_for_tracker = torch.cat(fmaps_for_tracker, dim=1)
+
+        # fmaps_for_tracker = self.track_predictor.process_images_to_fmaps(images)
 
         # Calculate bounding boxes if crop parameters are provided
         if crop_params is not None:
             bound_bboxes = crop_params[:, :, -4:-2].abs().to(device)
             # also remove those near the boundary
             bound_bboxes[bound_bboxes != 0] += self.remove_borders
-            bound_bboxes = torch.cat(
-                [bound_bboxes, reshaped_image.shape[-1] - bound_bboxes], dim=-1
-            )
+            bound_bboxes = torch.cat([bound_bboxes, reshaped_image.shape[-1] - bound_bboxes], dim=-1)
 
         # Predict tracks
+        torch.cuda.empty_cache()
         with autocast(device_type="cuda", dtype=dtype):
             pred_track, pred_vis, pred_score = predict_tracks(
                 self.cfg.query_method,
@@ -432,9 +412,7 @@ class VGGSfMRunner:
         # Visualize tracks as a video if enabled
         if self.cfg.visual_tracks:
             vis = Visualizer(save_dir=visual_dir, linewidth=1)
-            vis.visualize(
-                images * 255, pred_track, pred_vis[..., None], filename="track"
-            )
+            vis.visualize(images * 255, pred_track, pred_vis[..., None], filename="track")
 
         torch.cuda.empty_cache()
 
@@ -471,6 +449,7 @@ class VGGSfMRunner:
         )
 
         # Perform triangulation and bundle adjustment
+        torch.cuda.empty_cache()
         with autocast(device_type="cuda", dtype=torch.float32):
             (
                 extrinsics_opencv,
@@ -513,17 +492,11 @@ class VGGSfMRunner:
                 frame_num,
             )
             additional_points3D = torch.cat(
-                [
-                    additional_points_dict[img_name]["points3D"]
-                    for img_name in image_paths
-                ],
+                [additional_points_dict[img_name]["points3D"] for img_name in image_paths],
                 dim=0,
             )
             additional_points3D_rgb = torch.cat(
-                [
-                    additional_points_dict[img_name]["points3D_rgb"]
-                    for img_name in image_paths
-                ],
+                [additional_points_dict[img_name]["points3D_rgb"] for img_name in image_paths],
                 dim=0,
             )
 
@@ -532,9 +505,7 @@ class VGGSfMRunner:
 
             if self.cfg.concat_extra_points:
                 additional_points3D_numpy = additional_points3D.cpu().numpy()
-                additional_points3D_rgb_numpy = (
-                    (additional_points3D_rgb * 255).long().cpu().numpy()
-                )
+                additional_points3D_rgb_numpy = (additional_points3D_rgb * 255).long().cpu().numpy()
                 for extra_point_idx in range(len(additional_points3D)):
                     reconstruction.add_point3D(
                         additional_points3D_numpy[extra_point_idx],
@@ -580,19 +551,14 @@ class VGGSfMRunner:
             )
 
             # Also rescale the intrinsics_opencv tensor
-            fname_to_id = {
-                reconstruction.images[imgid].name: imgid
-                for imgid in reconstruction.images
-            }
+            fname_to_id = {reconstruction.images[imgid].name: imgid for imgid in reconstruction.images}
             intrinsics_original_res = []
             # We assume the returned extri and intri cooresponds to the order of sorted image_paths
             for fname in sorted(image_paths):
                 pyimg = reconstruction.images[fname_to_id[fname]]
                 pycam = reconstruction.cameras[pyimg.camera_id]
                 intrinsics_original_res.append(pycam.calibration_matrix())
-            intrinsics_opencv = torch.from_numpy(np.stack(intrinsics_original_res)).to(
-                device
-            )
+            intrinsics_opencv = torch.from_numpy(np.stack(intrinsics_original_res)).to(device)
 
         predictions["extrinsics_opencv"] = extrinsics_opencv
         # NOTE! If not back_to_original_resolution, then intrinsics_opencv
@@ -639,19 +605,13 @@ class VGGSfMRunner:
             rect_for_sample = rect_for_sample.floor()
             rect_for_sample[:, :2] += self.cfg.extra_pt_pixel_interval // 2
             rect_for_sample[:, 2:] -= self.cfg.extra_pt_pixel_interval // 2
-            grid_points = generate_grid_samples(
-                rect_for_sample, pixel_interval=self.cfg.extra_pt_pixel_interval
-            )
+            grid_points = generate_grid_samples(rect_for_sample, pixel_interval=self.cfg.extra_pt_pixel_interval)
             grid_points = grid_points.floor()
 
-            grid_rgb = sample_features4d(
-                images[:, frame_idx], grid_points[None]
-            ).squeeze(0)
+            grid_rgb = sample_features4d(images[:, frame_idx], grid_points[None]).squeeze(0)
 
             if self.cfg.extra_by_neighbor > 0:
-                neighbor_start, neighbor_end = sample_subrange(
-                    frame_num, frame_idx, self.cfg.extra_by_neighbor
-                )
+                neighbor_start, neighbor_end = sample_subrange(frame_num, frame_idx, self.cfg.extra_by_neighbor)
             else:
                 neighbor_start = 0
                 neighbor_end = frame_num
@@ -672,25 +632,17 @@ class VGGSfMRunner:
                 max_points_num=self.cfg.max_points_num,
             )
 
-            extra_params_neighbor = (
-                extra_params[neighbor_start:neighbor_end]
-                if extra_params is not None
-                else None
-            )
+            extra_params_neighbor = extra_params[neighbor_start:neighbor_end] if extra_params is not None else None
             extrinsics_neighbor = extrinsics_opencv[neighbor_start:neighbor_end]
             intrinsics_neighbor = intrinsics_opencv[neighbor_start:neighbor_end]
 
-            extra_track_normalized = cam_from_img(
-                extra_track, intrinsics_neighbor, extra_params_neighbor
-            )
+            extra_track_normalized = cam_from_img(extra_track, intrinsics_neighbor, extra_params_neighbor)
 
-            (extra_triangulated_points, extra_inlier_num, extra_inlier_mask) = (
-                triangulate_tracks(
-                    extrinsics_neighbor,
-                    extra_track_normalized.squeeze(0),
-                    track_vis=extra_vis.squeeze(0),
-                    track_score=extra_score.squeeze(0),
-                )
+            (extra_triangulated_points, extra_inlier_num, extra_inlier_mask) = triangulate_tracks(
+                extrinsics_neighbor,
+                extra_track_normalized.squeeze(0),
+                track_vis=extra_vis.squeeze(0),
+                track_score=extra_score.squeeze(0),
             )
 
             valid_triangulation_mask = extra_inlier_num > 3
@@ -704,9 +656,7 @@ class VGGSfMRunner:
                 max_reproj_error=self.cfg.max_reproj_error,
             )
 
-            valid_triangulation_mask = torch.logical_and(
-                valid_triangulation_mask, valid_poins3D_mask
-            )
+            valid_triangulation_mask = torch.logical_and(valid_triangulation_mask, valid_poins3D_mask)
 
             extra_points3D = extra_triangulated_points[valid_triangulation_mask]
             extra_points3D_rgb = grid_rgb[valid_triangulation_mask]
@@ -768,9 +718,7 @@ class VGGSfMRunner:
 
         print("Predicting dense depth maps via monocular depth estimation.")
 
-        disp_dict = extract_dense_depth_maps(
-            self.depth_model, image_paths, original_images
-        )
+        disp_dict = extract_dense_depth_maps(self.depth_model, image_paths, original_images)
 
         sparse_depth = predictions["sparse_depth"]
         reconstruction = predictions["reconstruction"]
@@ -809,9 +757,7 @@ class VGGSfMRunner:
             out_fname_with_bin = name_wo_extension + ".bin"
             write_array(depth_map, out_fname_with_bin)
 
-    def make_reprojection_video(
-        self, predictions, video_size, image_paths, original_images
-    ):
+    def make_reprojection_video(self, predictions, video_size, image_paths, original_images):
         """
         Create a video with reprojections of the 3D points onto the original images.
 
@@ -909,9 +855,7 @@ class VGGSfMRunner:
         trans_PT3D = extrinsics_opencv[:, :3, 3].clone()
         trans_PT3D[:, :2] *= -1
         rot_PT3D[:, :, :2] *= -1
-        visual_cameras = PerspectiveCamerasVisual(
-            R=rot_PT3D, T=trans_PT3D, device=trans_PT3D.device
-        )
+        visual_cameras = PerspectiveCamerasVisual(R=rot_PT3D, T=trans_PT3D, device=trans_PT3D.device)
 
         visual_dict = {"scenes": {"points": pcl, "cameras": visual_cameras}}
 
@@ -919,9 +863,7 @@ class VGGSfMRunner:
         if unproj_dense_points3D is not None:
             unprojected_rgb_points_list = []
             for unproj_img_name in sorted(unproj_dense_points3D.keys()):
-                unprojected_rgb_points = torch.from_numpy(
-                    unproj_dense_points3D[unproj_img_name]
-                )
+                unprojected_rgb_points = torch.from_numpy(unproj_dense_points3D[unproj_img_name])
                 unprojected_rgb_points_list.append(unprojected_rgb_points)
 
                 # Separate 3D point locations and RGB colors
@@ -948,7 +890,7 @@ class VGGSfMRunner:
         self.viz.plotlyplot(fig, env=env_name, win="3D")
 
     def visualize_3D_in_gradio(self, predictions, seq_name=None, output_dir=None):
-        from vggsfm.utils.gradio import vggsfm_predictions_to_glb, visualize_by_gradio
+        from vggsfm.utils.gradio import visualize_by_gradio, vggsfm_predictions_to_glb
 
         # Convert predictions to GLB scene
         glbscene = vggsfm_predictions_to_glb(predictions)
@@ -967,9 +909,7 @@ class VGGSfMRunner:
 
         unproj_dense_points3D = predictions["unproj_dense_points3D"]
         if unproj_dense_points3D is not None:
-            print(
-                "Dense point cloud visualization in Gradio is not supported due to time constraints."
-            )
+            print("Dense point cloud visualization in Gradio is not supported due to time constraints.")
 
     def rename_colmap_recons_and_rescale_camera(
         self,
@@ -1105,9 +1045,7 @@ def predict_tracks(
         # Switch so that query_index frame stays at the first frame
         # This largely simplifies the code structure of tracker
         new_order = calculate_index_mappings(query_index, frame_num, device=device)
-        images_feed, fmaps_feed = switch_tensor_order(
-            [images, fmaps_for_tracker], new_order
-        )
+        images_feed, fmaps_feed = switch_tensor_order([images, fmaps_for_tracker], new_order)
 
         all_points_num = images_feed.shape[1] * query_points.shape[1]
 
@@ -1146,9 +1084,7 @@ def predict_tracks(
             )
 
         # Switch back the predictions
-        fine_pred_track, pred_vis, pred_score = switch_tensor_order(
-            [fine_pred_track, pred_vis, pred_score], new_order
-        )
+        fine_pred_track, pred_vis, pred_score = switch_tensor_order([fine_pred_track, pred_vis, pred_score], new_order)
 
         # Append predictions for different queries
         pred_track_list.append(fine_pred_track)
@@ -1198,11 +1134,7 @@ def comple_nonvis_frames(
     """
     pred_track, pred_vis, pred_score = preds
     # if a frame has too few visible inlier, use it as a query
-    non_vis_frames = (
-        torch.nonzero((pred_vis.squeeze(0) > 0.05).sum(-1) < min_vis)
-        .squeeze(-1)
-        .tolist()
-    )
+    non_vis_frames = torch.nonzero((pred_vis.squeeze(0) > 0.05).sum(-1) < min_vis).squeeze(-1).tolist()
     last_query = -1
     final_trial = False
 
@@ -1236,11 +1168,7 @@ def comple_nonvis_frames(
         pred_track = torch.cat([pred_track, pred_track_comple], dim=2)
         pred_vis = torch.cat([pred_vis, pred_vis_comple], dim=2)
         pred_score = torch.cat([pred_score, pred_score_comple], dim=2)
-        non_vis_frames = (
-            torch.nonzero((pred_vis.squeeze(0) > 0.05).sum(-1) < min_vis)
-            .squeeze(-1)
-            .tolist()
-        )
+        non_vis_frames = torch.nonzero((pred_vis.squeeze(0) > 0.05).sum(-1) < min_vis).squeeze(-1).tolist()
 
         if final_trial:
             break
@@ -1333,15 +1261,11 @@ def get_query_points(
 
     for method in methods:
         if "sp" in method:
-            extractor = SuperPoint(
-                max_num_keypoints=max_query_num, detection_threshold=det_thres
-            )
+            extractor = SuperPoint(max_num_keypoints=max_query_num, detection_threshold=det_thres)
         elif "sift" in method:
             extractor = SIFT(max_num_keypoints=max_query_num)
         elif "aliked" in method:
-            extractor = ALIKED(
-                max_num_keypoints=max_query_num, detection_threshold=det_thres
-            )
+            extractor = ALIKED(max_num_keypoints=max_query_num, detection_threshold=det_thres)
         else:
             raise NotImplementedError(f"query method {method} is not supprted now")
         extractor = extractor.cuda().eval()
@@ -1356,14 +1280,10 @@ def get_query_points(
         if seg_invalid_mask is not None:
             seg_invalid_mask = seg_invalid_mask.squeeze(1).bool()
             invalid_mask = (
-                seg_invalid_mask
-                if invalid_mask is None
-                else torch.logical_or(invalid_mask, seg_invalid_mask)
+                seg_invalid_mask if invalid_mask is None else torch.logical_or(invalid_mask, seg_invalid_mask)
             )
 
-        query_points = extractor.extract(query_image, invalid_mask=invalid_mask)[
-            "keypoints"
-        ]
+        query_points = extractor.extract(query_image, invalid_mask=invalid_mask)["keypoints"]
         pred_points.append(query_points)
 
     query_points = torch.cat(pred_points, dim=1)

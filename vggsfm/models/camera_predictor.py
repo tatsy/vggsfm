@@ -6,29 +6,15 @@
 
 
 import logging
-from collections import defaultdict
-from dataclasses import field, dataclass
 
-import math
 import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from hydra.utils import instantiate
-from einops import rearrange, repeat
-from typing import Any, Dict, List, Optional, Tuple, Union, Callable
+from einops import rearrange
 
-
-from .modules import AttnBlock, CrossAttnBlock, Mlp, ResidualBlock
-
-from .utils import (
-    get_2d_sincos_pos_embed,
-    PoseEmbedding,
-    pose_encoding_to_camera,
-    camera_to_pose_encoding,
-)
-
+from .utils import PoseEmbedding, camera_to_pose_encoding, get_2d_sincos_pos_embed, pose_encoding_to_camera
+from .modules import Mlp, AttnBlock, CrossAttnBlock
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +33,11 @@ class CameraPredictor(nn.Module):
         down_size=336,
         att_depth=8,
         trunk_depth=4,
-        backbone="dinov2b",
+        backbone_name="dinov2b",
         pose_encoding_type="absT_quaR_OneFL",
         cfg=None,
     ):
-        super().__init__()
+        super(CameraPredictor, self).__init__()
         self.cfg = cfg
 
         self.att_depth = att_depth
@@ -63,17 +49,13 @@ class CameraPredictor(nn.Module):
         if self.pose_encoding_type == "absT_quaR_logFL":
             self.target_dim = 9
 
-        self.backbone = self.get_backbone(backbone)
+        self.backbone = self.get_backbone(backbone_name)
 
         for param in self.backbone.parameters():
             param.requires_grad = False
 
-        self.input_transform = Mlp(
-            in_features=z_dim, out_features=hidden_size, drop=0
-        )
-        self.norm = nn.LayerNorm(
-            hidden_size, elementwise_affine=False, eps=1e-6
-        )
+        self.input_transform = Mlp(in_features=z_dim, out_features=hidden_size, drop=0)
+        self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
 
         # sine and cosine embed for camera parameters
         self.embed_pose = PoseEmbedding(
@@ -82,9 +64,7 @@ class CameraPredictor(nn.Module):
             append_input=False,
         )
 
-        self.pose_token = nn.Parameter(
-            torch.zeros(1, 1, 1, hidden_size)
-        )  # register
+        self.pose_token = nn.Parameter(torch.zeros(1, 1, 1, hidden_size))  # register
 
         self.pose_branch = Mlp(
             in_features=hidden_size,
@@ -93,9 +73,7 @@ class CameraPredictor(nn.Module):
             drop=0,
         )
 
-        self.ffeat_updater = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size), nn.GELU()
-        )
+        self.ffeat_updater = nn.Sequential(nn.Linear(hidden_size, hidden_size), nn.GELU())
 
         self.self_att = nn.ModuleList(
             [
@@ -110,12 +88,7 @@ class CameraPredictor(nn.Module):
         )
 
         self.cross_att = nn.ModuleList(
-            [
-                CrossAttnBlock(
-                    hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio
-                )
-                for _ in range(self.att_depth)
-            ]
+            [CrossAttnBlock(hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(self.att_depth)]
         )
 
         self.trunk = nn.Sequential(
@@ -149,22 +122,30 @@ class CameraPredictor(nn.Module):
         reshaped_image,
         preliminary_cameras=None,
         iters=4,
-        batch_size=None,
+        batch_size=1,
         rgb_feat_init=None,
     ):
         """
         reshaped_image: Bx3xHxW. The values of reshaped_image are within [0, 1]
         preliminary_cameras: cameras in opencv coordinate.
         """
-
+        N = reshaped_image.size(0)
         if rgb_feat_init is None:
             # Get the 2D image features
-            rgb_feat, B, S, C = self.get_2D_image_features(
-                reshaped_image, batch_size
-            )
+            rgb_feat = []
+            sub_batch_size = 4
+            for i in range(0, N, sub_batch_size):
+                end = min(i + sub_batch_size, N)
+                image_batch = reshaped_image[i:end]
+                f, _, _, _ = self.get_2D_image_features(image_batch, batch_size)
+                rgb_feat.append(f)
+
+            rgb_feat = torch.cat(rgb_feat, dim=1)
+            B, S = rgb_feat.size(0), rgb_feat.size(1)
+            # rgb_feat, B, S, _ = self.get_2D_image_features(reshaped_image, batch_size)
         else:
             rgb_feat = rgb_feat_init
-            B, S, C = rgb_feat.shape
+            B, S, _ = rgb_feat.shape
 
         if preliminary_cameras is not None:
             # Init the pred_pose_enc by preliminary_cameras
@@ -174,13 +155,11 @@ class CameraPredictor(nn.Module):
                     pose_encoding_type=self.pose_encoding_type,
                 )
                 .reshape(B, S, -1)
-                .to(rgb_feat.dtype)
+                .type_as(rgb_feat)
             )
         else:
             # Or you can use random init for the poses
-            pred_pose_enc = torch.zeros(B, S, self.target_dim).to(
-                rgb_feat.device
-            )
+            pred_pose_enc = torch.zeros(B, S, self.target_dim).to(rgb_feat.device)
 
         rgb_feat_init = rgb_feat.clone()
 
@@ -225,13 +204,9 @@ class CameraPredictor(nn.Module):
         Load the backbone model.
         """
         if backbone == "dinov2s":
-            return torch.hub.load(
-                "facebookresearch/dinov2", "dinov2_vits14_reg"
-            )
+            return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
         elif backbone == "dinov2b":
-            return torch.hub.load(
-                "facebookresearch/dinov2", "dinov2_vitb14_reg"
-            )
+            return torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
         else:
             raise NotImplementedError(f"Backbone '{backbone}' not implemented")
 
@@ -251,24 +226,18 @@ class CameraPredictor(nn.Module):
         with torch.no_grad():
             reshaped_image = self._resnet_normalize_image(reshaped_image)
             rgb_feat = self.backbone(reshaped_image, is_training=True)
-            # B x P x C
             rgb_feat = rgb_feat["x_norm_patchtokens"]
 
         rgb_feat = self.input_transform(rgb_feat)
         rgb_feat = self.norm(rgb_feat)
 
         rgb_feat = rearrange(rgb_feat, "(b s) p c -> b s p c", b=batch_size)
-
         B, S, P, C = rgb_feat.shape
-        patch_num = int(math.sqrt(P))
+        patch_num = int(np.sqrt(P))
 
         # add embedding of 2D spaces
-        pos_embed = get_2d_sincos_pos_embed(
-            C, grid_size=(patch_num, patch_num)
-        ).permute(0, 2, 3, 1)[None]
-        pos_embed = pos_embed.reshape(1, 1, patch_num * patch_num, C).to(
-            rgb_feat.device
-        )
+        pos_embed = get_2d_sincos_pos_embed(C, grid_size=(patch_num, patch_num)).permute(0, 2, 3, 1).unsqueeze(0)
+        pos_embed = pos_embed.reshape(1, 1, patch_num * patch_num, C).to(rgb_feat.device)
 
         rgb_feat = rgb_feat + pos_embed
 
@@ -288,14 +257,10 @@ class CameraPredictor(nn.Module):
             feat_others = rgb_feat[:, 1:]
 
             # cross attention
-            feat_others = rearrange(
-                feat_others, "b m p c -> b (m p) c", m=S - 1, p=P
-            )
+            feat_others = rearrange(feat_others, "b m p c -> b (m p) c", m=S - 1, p=P)
             feat_others = self.cross_att[idx](feat_others, feat_0)
 
-            feat_others = rearrange(
-                feat_others, "b (m p) c -> b m p c", m=S - 1, p=P
-            )
+            feat_others = rearrange(feat_others, "b (m p) c -> b m p c", m=S - 1, p=P)
             rgb_feat = torch.cat([rgb_feat[:, 0:1], feat_others], dim=1)
 
         rgb_feat = rgb_feat[:, :, 0]

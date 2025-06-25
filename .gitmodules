@@ -1,3 +1,0 @@
-[submodule "dependency/LightGlue"]
-	path = dependency/LightGlue
-	url = https://github.com/jytime/LightGlue.git

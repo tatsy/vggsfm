@@ -7,28 +7,23 @@
 
 import hydra
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf, DictConfig
 
-from vggsfm.datasets.demo_loader import DemoLoader
-from vggsfm.runners.runner import VGGSfMRunner
 from vggsfm.utils.utils import seed_all_random_engines
+from vggsfm.runners.runner import VGGSfMRunner
+from vggsfm.datasets.demo_loader import DemoLoader
 
 
-@hydra.main(config_path="cfgs/", config_name="demo")
+@torch.no_grad()
+@hydra.main(config_path="cfgs/", config_name="demo", version_base="1.2")
 def demo_fn(cfg: DictConfig):
     """
     Main function to run the VGGSfM demo. VGGSfMRunner is the main controller.
     """
 
-    OmegaConf.set_struct(cfg, False)
-
     # Print configuration
+    OmegaConf.set_struct(cfg, False)
     print("Model Config:", OmegaConf.to_yaml(cfg))
-
-    # Configure CUDA settings
-    torch.backends.cudnn.enabled = False
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = True
 
     # Set seed for reproducibility
     seed_all_random_engines(cfg.seed)
@@ -64,7 +59,7 @@ def demo_fn(cfg: DictConfig):
 
     # Run VGGSfM
     # Both visualization and output writing are performed inside VGGSfMRunner
-    predictions = vggsfm_runner.run(
+    vggsfm_runner.run(
         images,
         masks=masks,
         # original_images=original_images,
@@ -76,9 +71,6 @@ def demo_fn(cfg: DictConfig):
 
     print("Demo Finished Successfully")
 
-    return True
-
 
 if __name__ == "__main__":
-    with torch.no_grad():
-        demo_fn()
+    demo_fn()

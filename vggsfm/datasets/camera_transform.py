@@ -7,10 +7,10 @@
 
 # Adapted from https://github.com/amyxlase/relpose-plus-plus
 
-import torch
-import numpy as np
 import math
 
+import numpy as np
+import torch
 
 from minipytorch3d.cameras import PerspectiveCameras
 from minipytorch3d.transform3d import Rotate, Translate
@@ -33,9 +33,7 @@ def bbox_xyxy_to_xywh(xyxy):
 def adjust_camera_to_bbox_crop_(
     fl, pp, image_size_wh: torch.Tensor, clamp_bbox_xywh: torch.Tensor
 ):
-    focal_length_px, principal_point_px = _convert_ndc_to_pixels(
-        fl, pp, image_size_wh
-    )
+    focal_length_px, principal_point_px = _convert_ndc_to_pixels(fl, pp, image_size_wh)
 
     principal_point_px_cropped = principal_point_px - clamp_bbox_xywh[:2]
 
@@ -47,7 +45,7 @@ def adjust_camera_to_bbox_crop_(
 
 
 def adjust_camera_to_image_scale_(
-    fl, pp, original_size_wh: torch.Tensor, new_size_wh: torch.LongTensor
+    fl, pp, original_size_wh: torch.Tensor, new_size_wh: torch.Tensor
 ):
     focal_length_px, principal_point_px = _convert_ndc_to_pixels(
         fl, pp, original_size_wh
@@ -55,11 +53,7 @@ def adjust_camera_to_image_scale_(
 
     # now scale and convert from pixels to NDC
     image_size_wh_output = new_size_wh.float()
-    scale = (
-        (image_size_wh_output / original_size_wh)
-        .min(dim=-1, keepdim=True)
-        .values
-    )
+    scale = (image_size_wh_output / original_size_wh).min(dim=-1, keepdim=True).values
     focal_length_px_scaled = focal_length_px * scale
     principal_point_px_scaled = principal_point_px * scale
 
@@ -116,9 +110,7 @@ def normalize_cameras(
     new_cameras = cameras.clone()
 
     if compute_optical:
-        new_cameras, points = compute_optical_transform(
-            new_cameras, points=points
-        )
+        new_cameras, points = compute_optical_transform(new_cameras, points=points)
 
     if first_camera:
         new_cameras, points = first_camera_transform(new_cameras, points=points)
@@ -137,8 +129,8 @@ def compute_optical_transform(new_cameras, points=None):
     """
 
     new_transform = new_cameras.get_world_to_view_transform()
-    (p_intersect, dist, p_line_intersect, pp, r) = (
-        compute_optical_axis_intersection(new_cameras)
+    (p_intersect, dist, p_line_intersect, pp, r) = compute_optical_axis_intersection(
+        new_cameras
     )
     t = Translate(p_intersect)
     scale = dist.squeeze()[0]
@@ -167,9 +159,7 @@ def compute_optical_axis_intersection(cameras):
     one_vec = torch.ones((len(cameras), 1))
     optical_axis = torch.cat((principal_points, one_vec), -1)
 
-    pp = cameras.unproject_points(
-        optical_axis, from_ndc=True, world_coordinates=True
-    )
+    pp = cameras.unproject_points(optical_axis, from_ndc=True, world_coordinates=True)
 
     pp2 = pp[torch.arange(pp.shape[0]), torch.arange(pp.shape[0])]
 
@@ -194,9 +184,9 @@ def intersect_skew_line_groups(p, r, mask):
     _, p_line_intersect = _point_line_distance(
         p, r, p_intersect[..., None, :].expand_as(p)
     )
-    intersect_dist_squared = (
-        (p_line_intersect - p_intersect[..., None, :]) ** 2
-    ).sum(dim=-1)
+    intersect_dist_squared = ((p_line_intersect - p_intersect[..., None, :]) ** 2).sum(
+        dim=-1
+    )
     return p_intersect, p_line_intersect, intersect_dist_squared, r
 
 
@@ -211,9 +201,7 @@ def intersect_skew_lines_high_dim(p, r, mask=None):
     eye = torch.eye(dim, device=p.device, dtype=p.dtype)[None, None]
     I_min_cov = (eye - (r[..., None] * r[..., None, :])) * mask[..., None, None]
     sum_proj = I_min_cov.matmul(p[..., None]).sum(dim=-3)
-    p_intersect = torch.linalg.lstsq(I_min_cov.sum(dim=-3), sum_proj).solution[
-        ..., 0
-    ]
+    p_intersect = torch.linalg.lstsq(I_min_cov.sum(dim=-3), sum_proj).solution[..., 0]
 
     if torch.any(torch.isnan(p_intersect)):
         print(p_intersect)

@@ -1,0 +1,16 @@
+{
+  "configurations": [
+    {
+      "name": "demo.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/demo.py",
+      "console": "integratedTerminal",
+      "args": [
+        "SCENE_DIR=/data/Kyodo/Tokyo",
+        // "SCENE_DIR=/data/SFM/auditrium",
+        "camera_type=SIMPLE_RADIAL"
+      ]
+    }
+  ]
+}

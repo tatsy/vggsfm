@@ -5,21 +5,22 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import matplotlib
-import numpy as np
-
-import torch
-import torch.nn.functional as F
 import os
-import cv2
 import math
 import random
 import struct
-from tqdm import tqdm
-from .metric import closed_form_inverse, closed_form_inverse_OpenCV
 
+import cv2
+import numpy as np
+import torch
+import matplotlib
+import torch.nn.functional as F
+from tqdm import tqdm
 from scipy.spatial.transform import Rotation as sciR
+
 from minipytorch3d.cameras import CamerasBase, PerspectiveCameras
+
+from .metric import closed_form_inverse, closed_form_inverse_OpenCV
 
 
 def average_camera_prediction(
@@ -34,9 +35,7 @@ def average_camera_prediction(
     # this is almost a free-lunch
 
     # Ensure function is only used for inference with batch_size 1
-    assert (
-        batch_size == 1
-    ), "This function is designed for inference with batch_size=1."
+    assert batch_size == 1, "This function is designed for inference with batch_size=1."
 
     # Determine the number of frames in the input image
     num_frames = len(reshaped_image)
@@ -58,24 +57,22 @@ def average_camera_prediction(
 
     for query_index in query_indices:
         # Create a new order to place the query frame at the first position
-        new_order = calculate_index_mappings(
-            query_index, num_frames, device=device
-        )
+        new_order = calculate_index_mappings(query_index, num_frames, device=device)
         reshaped_image_ordered = switch_tensor_order(
             [reshaped_image], new_order, dim=0
         )[0]
 
         # Predict camera parameters using the reordered image
         # NOTE the output has been in OPENCV format instead of PyTorch3D
-        pred_cameras = camera_predictor(
-            reshaped_image_ordered, batch_size=batch_size
-        )["pred_cameras"]
+        pred_cameras = camera_predictor(reshaped_image_ordered, batch_size=batch_size)[
+            "pred_cameras"
+        ]
 
         R = pred_cameras.R
         abs_T = pred_cameras.T
 
-        extrinsics_4x4 = torch.eye(4, 4).to(R.dtype).to(R.device)
-        extrinsics_4x4 = extrinsics_4x4[None].repeat(len(R), 1, 1)
+        extrinsics_4x4 = torch.eye(4, 4, dtype=torch.float32, device=R.device)
+        extrinsics_4x4 = extrinsics_4x4.unsqueeze(0).repeat(len(R), 1, 1)
 
         extrinsics_4x4[:, :3, :3] = R.clone()
         extrinsics_4x4[:, :3, 3] = abs_T.clone()
@@ -97,9 +94,9 @@ def average_camera_prediction(
         abs_T = extrinsics_4x4[:, :3, 3].clone()
 
         # Collect the relative rotation and translation matrices
-        rotation_matrices.append(R[None])
-        translations.append(abs_T[None])
-        focal_lengths.append(focal_length[None])
+        rotation_matrices.append(R.unsqueeze(0))
+        translations.append(abs_T.unsqueeze(0))
+        focal_lengths.append(focal_length.unsqueeze(0))
 
     # Concatenate the predictions across sampled frames
     rotation_matrices = torch.concat(rotation_matrices)
@@ -169,11 +166,9 @@ def calculate_index_mappings(query_index, S, device=None):
     Construct an order that we can switch [query_index] and [0]
     so that the content of query_index would be placed at [0]
     """
-    new_order = torch.arange(S)
+    new_order = torch.arange(S, dtype=torch.int64, device=device)
     new_order[0] = query_index
     new_order[query_index] = 0
-    if device is not None:
-        new_order = new_order.to(device)
     return new_order
 
 
@@ -182,7 +177,7 @@ def switch_tensor_order(tensors, order, dim=1):
     Switch the tensor among the specific dimension
     """
     return [
-        torch.index_select(tensor, dim, order) if tensor is not None else None
+        (torch.index_select(tensor, dim, order) if tensor is not None else None)
         for tensor in tensors
     ]
 
@@ -201,9 +196,7 @@ def transform_camera_relative_to_first(pred_cameras, batch_size):
     return pred_cameras
 
 
-def farthest_point_sampling(
-    distance_matrix, num_samples, most_common_frame_index=0
-):
+def farthest_point_sampling(distance_matrix, num_samples, most_common_frame_index=0):
     # Number of points
     distance_matrix = distance_matrix.clamp(min=0)
 
@@ -282,9 +275,7 @@ def generate_rank_by_dino(
 
     # Compute the similiarty matrix
     frame_feat_norm = frame_feat_norm.permute(1, 0, 2)
-    similarity_matrix = torch.bmm(
-        frame_feat_norm, frame_feat_norm.transpose(-1, -2)
-    )
+    similarity_matrix = torch.bmm(frame_feat_norm, frame_feat_norm.transpose(-1, -2))
     similarity_matrix = similarity_matrix.mean(dim=0)
     distance_matrix = 100 - similarity_matrix.clone()
 
@@ -308,9 +299,7 @@ def generate_rank_by_dino(
     return fps_idx
 
 
-def visual_query_points(
-    images, query_index, query_points, save_name="image_cv2.png"
-):
+def visual_query_points(images, query_index, query_points, save_name="image_cv2.png"):
     """
     Processes an image by converting it to BGR color space, drawing circles at specified points,
     and saving the image to a file.
@@ -322,10 +311,9 @@ def visual_query_points(
     """
     # Convert the image from RGB to BGR
     image_cv2 = cv2.cvtColor(
-        (
-            images[:, query_index].squeeze().permute(1, 2, 0).cpu().numpy()
-            * 255
-        ).astype(np.uint8),
+        (images[:, query_index].squeeze().permute(1, 2, 0).cpu().numpy() * 255).astype(
+            np.uint8
+        ),
         cv2.COLOR_RGB2BGR,
     )
 
@@ -384,9 +372,7 @@ def write_array(array, path):
         data_list = data_1d.tolist()
         endian_character = "<"
         format_char_sequence = "".join(["f"] * len(data_list))
-        byte_data = struct.pack(
-            endian_character + format_char_sequence, *data_list
-        )
+        byte_data = struct.pack(endian_character + format_char_sequence, *data_list)
         fid.write(byte_data)
 
 
@@ -416,9 +402,7 @@ def filter_invisible_reprojections(uvs_int, depths):
     # Set the mask to False for non-unique points and keep the one with the smallest depth
     for i in np.where(counts > 1)[0]:
         duplicate_indices = np.where(inverse_indices == i)[0]
-        min_depth_index = duplicate_indices[
-            np.argmin(depths[duplicate_indices])
-        ]
+        min_depth_index = duplicate_indices[np.argmin(depths[duplicate_indices])]
         mask[duplicate_indices] = False
         mask[min_depth_index] = True
 
@@ -460,9 +444,7 @@ def create_video_with_reprojections(
     video_size_rev = video_size[::-1]
     colormap = matplotlib.colormaps.get_cmap(cmap)
 
-    points3D = np.array(
-        [point.xyz for point in reconstruction.points3D.values()]
-    )
+    points3D = np.array([point.xyz for point in reconstruction.points3D.values()])
 
     if color_mode == "dis_to_center":
         median_point = np.median(points3D, axis=0)
@@ -474,9 +456,7 @@ def create_video_with_reprojections(
     elif color_mode == "point_order":
         max_point3D_idx = max(reconstruction.point3D_ids())
     else:
-        raise NotImplementedError(
-            f"Color mode '{color_mode}' is not implemented."
-        )
+        raise NotImplementedError(f"Color mode '{color_mode}' is not implemented.")
 
     img_with_circles_list = []
 
@@ -485,9 +465,7 @@ def create_video_with_reprojections(
             img_with_circles = original_images[img_basename]
             img_with_circles = cv2.cvtColor(img_with_circles, cv2.COLOR_RGB2BGR)
         else:
-            img_with_circles = cv2.imread(
-                os.path.join(fname_prefix, img_basename)
-            )
+            img_with_circles = cv2.imread(os.path.join(fname_prefix, img_basename))
 
         uvds = np.array(sparse_depth[img_basename])
         uvs, uv_depth = uvds[:, :2], uvds[:, -1]
@@ -510,9 +488,7 @@ def create_video_with_reprojections(
         # Filter out occluded points
         vis_reproj_mask = filter_invisible_reprojections(uvs_int, uv_depth)
 
-        for (x, y), color in zip(
-            uvs_int[vis_reproj_mask], colors[vis_reproj_mask]
-        ):
+        for (x, y), color in zip(uvs_int[vis_reproj_mask], colors[vis_reproj_mask]):
             cv2.circle(
                 img_with_circles,
                 (x, y),
@@ -574,9 +550,7 @@ def save_video_with_reprojections(
 def create_depth_map_visual(depth_map, raw_img, output_filename):
     # Normalize the depth map to the range 0-255
     depth_map_visual = (
-        (depth_map - depth_map.min())
-        / (depth_map.max() - depth_map.min())
-        * 255.0
+        (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min()) * 255.0
     )
     depth_map_visual = depth_map_visual.astype(np.uint8)
 
@@ -584,9 +558,9 @@ def create_depth_map_visual(depth_map, raw_img, output_filename):
     cmap = matplotlib.colormaps.get_cmap("Spectral_r")
 
     # Apply the colormap and convert to uint8
-    depth_map_visual = (cmap(depth_map_visual)[:, :, :3] * 255)[
-        :, :, ::-1
-    ].astype(np.uint8)
+    depth_map_visual = (cmap(depth_map_visual)[:, :, :3] * 255)[:, :, ::-1].astype(
+        np.uint8
+    )
 
     # Create a white split region
     split_region = np.ones((raw_img.shape[0], 50, 3), dtype=np.uint8) * 255
@@ -609,9 +583,7 @@ def extract_dense_depth_maps(depth_model, image_paths, original_images=None):
     print("Extracting dense depth maps")
     disp_dict = {}
 
-    for idx in tqdm(
-        range(len(image_paths)), desc="Predicting monocular depth maps"
-    ):
+    for idx in tqdm(range(len(image_paths)), desc="Predicting monocular depth maps"):
         img_fname = image_paths[idx]
         basename = os.path.basename(img_fname)
 
@@ -622,9 +594,7 @@ def extract_dense_depth_maps(depth_model, image_paths, original_images=None):
             raw_img = cv2.imread(img_fname)
 
         # raw resolution
-        disp_map = depth_model.infer_image(
-            raw_img, min(1024, max(raw_img.shape[:2]))
-        )
+        disp_map = depth_model.infer_image(raw_img, min(1024, max(raw_img.shape[:2])))
 
         disp_dict[basename] = disp_map
 
@@ -640,8 +610,7 @@ def align_dense_depth_maps(
     visual_dense_point_cloud=False,
 ):
     # For dense depth estimation
-    from sklearn.linear_model import RANSACRegressor
-    from sklearn.linear_model import LinearRegression
+    from sklearn.linear_model import RANSACRegressor, LinearRegression
 
     # Define disparity and depth limits
     disparity_max = 10000
@@ -652,13 +621,10 @@ def align_dense_depth_maps(
     depth_dict = {}
     unproj_dense_points3D = {}
     fname_to_id = {
-        reconstruction.images[imgid].name: imgid
-        for imgid in reconstruction.images
+        reconstruction.images[imgid].name: imgid for imgid in reconstruction.images
     }
 
-    for img_basename in tqdm(
-        sparse_depth, desc="Load monocular depth and Align"
-    ):
+    for img_basename in tqdm(sparse_depth, desc="Load monocular depth and Align"):
         sparse_uvd = np.array(sparse_depth[img_basename])
 
         if len(sparse_uvd) <= 0:
@@ -749,9 +715,7 @@ def align_dense_depth_maps(
             unproject_points_homo = np.hstack(
                 (unproject_points, np.ones((unproject_points.shape[0], 1)))
             )
-            unproject_points_withz = (
-                unproject_points_homo * depth_values.reshape(-1, 1)
-            )
+            unproject_points_withz = unproject_points_homo * depth_values.reshape(-1, 1)
             unproject_points_world = (
                 pyimg.cam_from_world.inverse() * unproject_points_withz
             )
