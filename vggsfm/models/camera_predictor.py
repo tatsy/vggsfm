@@ -34,7 +34,6 @@ class CameraPredictor(nn.Module):
         down_size=336,
         att_depth=8,
         trunk_depth=4,
-        backbone_name="dinov2b",
         pose_encoding_type="absT_quaR_OneFL",
         cfg=None,
     ):
@@ -50,7 +49,7 @@ class CameraPredictor(nn.Module):
         if self.pose_encoding_type == "absT_quaR_logFL":
             self.target_dim = 9
 
-        self.backbone = self.get_backbone(backbone_name)
+        self.backbone = self.get_backbone(self.cfg.backbone)
 
         for param in self.backbone.parameters():
             param.requires_grad = False
@@ -143,21 +142,14 @@ class CameraPredictor(nn.Module):
 
             rgb_feat = torch.cat(rgb_feat, dim=1)
             B, S = rgb_feat.size(0), rgb_feat.size(1)
-            # rgb_feat, B, S, _ = self.get_2D_image_features(reshaped_image, batch_size)
         else:
             rgb_feat = rgb_feat_init
             B, S, _ = rgb_feat.shape
 
         if preliminary_cameras is not None:
             # Init the pred_pose_enc by preliminary_cameras
-            pred_pose_enc = (
-                camera_to_pose_encoding(
-                    preliminary_cameras,
-                    pose_encoding_type=self.pose_encoding_type,
-                )
-                .reshape(B, S, -1)
-                .type_as(rgb_feat)
-            )
+            pred_pose_enc = camera_to_pose_encoding(preliminary_cameras, pose_encoding_type=self.pose_encoding_type)
+            pred_pose_enc = pred_pose_enc.reshape(B, S, -1).type_as(rgb_feat)
         else:
             # Or you can use random init for the poses
             pred_pose_enc = torch.zeros(B, S, self.target_dim).to(rgb_feat.device)
@@ -220,12 +212,8 @@ class CameraPredictor(nn.Module):
     def get_2D_image_features(self, reshaped_image, batch_size):
         # Get the 2D image features
         if reshaped_image.shape[-1] != self.down_size:
-            reshaped_image = F.interpolate(
-                reshaped_image,
-                (self.down_size, self.down_size),
-                mode="bilinear",
-                align_corners=True,
-            )
+            new_size = (self.down_size, self.down_size)
+            reshaped_image = F.interpolate(reshaped_image, new_size, mode="bilinear", align_corners=True)
 
         with torch.no_grad():
             reshaped_image = self._resnet_normalize_image(reshaped_image)

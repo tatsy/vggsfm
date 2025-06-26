@@ -5,33 +5,29 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import torch
 import hydra
-from omegaconf import DictConfig, OmegaConf
+import torch
+import coloredlogs
+from omegaconf import OmegaConf, DictConfig
 
-# from vggsfm.runners.runner import VGGSfMRunner
-from vggsfm.runners.video_runner import VideoRunner
-from vggsfm.datasets.demo_loader import DemoLoader
 from vggsfm.utils.utils import seed_all_random_engines
+from vggsfm.datasets.demo_loader import DemoLoader
+from vggsfm.runners.video_runner import VideoRunner
 
 
-@hydra.main(config_path="cfgs/", config_name="video_demo")
+@torch.no_grad()
+@hydra.main(config_path="cfgs/", config_name="video_demo", version_base="1.2")
 def demo_fn(cfg: DictConfig):
     """
     Main function to run the VGGSfM demo. VideoRunner is the main controller.
-
     VideoRunner assumes a sequential input of images.
     """
 
+    coloredlogs.install(level='INFO')
     OmegaConf.set_struct(cfg, False)
 
     # Print configuration
-    print("Model Config:", OmegaConf.to_yaml(cfg))
-
-    # Configure CUDA settings
-    torch.backends.cudnn.enabled = False
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = True
+    print("Model config:", OmegaConf.to_yaml(cfg))
 
     # Set seed for reproducibility
     seed_all_random_engines(cfg.seed)
@@ -52,29 +48,18 @@ def demo_fn(cfg: DictConfig):
     seq_name = sequence_list[0]  # Run on one Scene
 
     # Load the data for the selected sequence
-    batch, image_paths = test_dataset.get_data(
-        sequence_name=seq_name, return_path=True
-    )
+    batch, image_paths = test_dataset.get_data(sequence_name=seq_name, return_path=True)
 
-    output_dir = batch[
-        "scene_dir"
-    ]  # which is also cfg.SCENE_DIR for DemoLoader
-
+    output_dir = batch["scene_dir"]  # which is also cfg.SCENE_DIR for DemoLoader
     images = batch["image"]
     masks = batch["masks"] if batch["masks"] is not None else None
-    crop_params = (
-        batch["crop_params"] if batch["crop_params"] is not None else None
-    )
-
-    # Cache the original images for visualization, so that we don't need to re-load many times
-    original_images = batch["original_images"]
+    crop_params = batch["crop_params"] if batch["crop_params"] is not None else None
 
     # Run VGGSfM
     # Both visualization and output writing are performed inside VGGSfMRunner
-    predictions = vggsfm_runner.run(
+    vggsfm_runner.run(
         images,
         masks=masks,
-        original_images=original_images,
         image_paths=image_paths,
         crop_params=crop_params,
         seq_name=seq_name,
@@ -84,11 +69,8 @@ def demo_fn(cfg: DictConfig):
         joint_BA_interval=cfg.joint_BA_interval,
     )
 
-    print("Video Demo Finished Successfully")
-
-    return True
+    print("Video demo finished successfully!!")
 
 
 if __name__ == "__main__":
-    with torch.no_grad():
-        demo_fn()
+    demo_fn()

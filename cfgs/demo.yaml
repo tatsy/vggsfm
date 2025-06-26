@@ -1,11 +1,15 @@
 hydra:
+  run:
+    dir: .
   job:
     chdir: False
 
-model_name: "vggsfm_v2_0_0"
+model_name: vggsfm_v2_0_0
 
 seed: 0
 img_size: 1024
+backbone: dinov2b
+
 debug: False
 center_order: False
 mixed_precision: fp16
@@ -19,10 +23,9 @@ BA_iters: 1
 
 fine_tracking: True
 
-camera_type: "SIMPLE_PINHOLE" # optional: ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]
+camera_type: SIMPLE_RADIAL # optional: ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]
 
 load_gt: False
-viz_visualize: False
 gr_visualize: False
 fmat_thres: 4.0
 max_reproj_error: 4.0

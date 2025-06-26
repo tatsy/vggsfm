@@ -5,18 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from functools import partial
-
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import nn, einsum
-from einops import repeat, rearrange
 from hydra.utils import instantiate
-from einops.layers.torch import Reduce, Rearrange
 
-from .track_modules.refine_track import refine_track
+from vggsfm.models.track_modules.refine_track import refine_track
 
 
 class TrackerPredictor(nn.Module):

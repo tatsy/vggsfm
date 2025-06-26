@@ -21,6 +21,7 @@ from hydra.utils import instantiate
 from vggsfm.utils.utils import (
     write_array,
     sample_subrange,
+    image_order_swap,
     switch_tensor_order,
     generate_grid_samples,
     generate_rank_by_dino,
@@ -45,7 +46,7 @@ except ImportError:
     print("Poselib is not installed. Please disable use_poselib")
 
 
-class VGGSfMRunner:
+class VGGSfMRunner(object):
     def __init__(self, cfg):
         """
         A runner class for the VGGSfM (Structure from Motion) pipeline.
@@ -236,9 +237,6 @@ class VGGSfMRunner:
                     self.save_reprojection_video(img_with_circles_list, video_size, output_dir)
 
             # Visualize the 3D reconstruction if enabled
-            if self.cfg.viz_visualize:
-                self.visualize_3D_in_visdom(predictions, seq_name, output_dir)
-
             if self.cfg.gr_visualize:
                 self.visualize_3D_in_gradio(predictions, seq_name, output_dir)
 
@@ -282,16 +280,13 @@ class VGGSfMRunner:
             dict: A dictionary containing the reconstruction results, including camera parameters and 3D points.
         """
 
-        print(f"Run Sparse Reconstruction for Scene {seq_name}")
+        print(f'Run sparse reconstruction for scene "{seq_name:s}"')
         batch_num, frame_num, image_dim, height, width = images.size()
         device = images.device
         reshaped_image = images.reshape(batch_num * frame_num, image_dim, height, width)
         visual_dir = os.path.join(output_dir, "visuals")
-
         if dtype is None:
             dtype = self.dtype
-
-        predictions = {}
 
         # Find the query frames using DINO or frame names
         with autocast(device_type="cuda", dtype=dtype):
@@ -305,8 +300,8 @@ class VGGSfMRunner:
         # Extract base names from image paths
         image_paths = [os.path.basename(imgpath) for imgpath in image_paths]
 
-        center_order = None
         # Reorder frames if center_order is enabled
+        center_order = None
         if self.cfg.center_order:
             # The code below switchs the first frame (frame 0) to the most common frame
             center_frame_index = query_frame_indexes[0]
@@ -539,6 +534,7 @@ class VGGSfMRunner:
                 intrinsics_original_res.append(pycam.calibration_matrix())
             intrinsics_opencv = torch.from_numpy(np.stack(intrinsics_original_res)).to(device)
 
+        predictions = {}
         predictions["extrinsics_opencv"] = extrinsics_opencv
         # NOTE! If not back_to_original_resolution, then intrinsics_opencv
         # cooresponds to the resized one (e.g., 1024x1024)
@@ -617,11 +613,12 @@ class VGGSfMRunner:
 
             extra_track_normalized = cam_from_img(extra_track, intrinsics_neighbor, extra_params_neighbor)
 
-            (extra_triangulated_points, extra_inlier_num, extra_inlier_mask) = triangulate_tracks(
+            extra_triangulated_points, extra_inlier_num, _ = triangulate_tracks(
                 extrinsics_neighbor,
                 extra_track_normalized.squeeze(0),
                 track_vis=extra_vis.squeeze(0),
                 track_score=extra_score.squeeze(0),
+                max_tri_points_num=self.cfg.max_tri_points_num,
             )
 
             valid_triangulation_mask = extra_inlier_num > 3
@@ -807,67 +804,6 @@ class VGGSfMRunner:
         os.makedirs(sfm_output_dir, exist_ok=True)
         reconstruction_pycolmap.write(sfm_output_dir)
 
-    def visualize_3D_in_visdom(self, predictions, seq_name=None, output_dir=None):
-        """
-        This function takes the predictions from the reconstruction process and visualizes
-        the 3D point cloud and camera positions in Visdom. It handles both sparse and dense
-        reconstructions if available. Requires a running Visdom server and PyTorch3D library.
-
-        Args:
-            predictions (dict): Reconstruction results including 3D points and camera parameters.
-            seq_name (str, optional): Sequence name for visualization.
-            output_dir (str, optional): Directory for saving output files.
-        """
-
-        if "points3D_rgb" in predictions:
-            pcl = Pointclouds(
-                points=predictions["points3D"][None],
-                features=predictions["points3D_rgb"][None],
-            )
-        else:
-            pcl = Pointclouds(points=predictions["points3D"][None])
-
-        extrinsics_opencv = predictions["extrinsics_opencv"]
-
-        # From OpenCV/COLMAP to PyTorch3D
-        rot_PT3D = extrinsics_opencv[:, :3, :3].clone().permute(0, 2, 1)
-        trans_PT3D = extrinsics_opencv[:, :3, 3].clone()
-        trans_PT3D[:, :2] *= -1
-        rot_PT3D[:, :, :2] *= -1
-        visual_cameras = PerspectiveCamerasVisual(R=rot_PT3D, T=trans_PT3D, device=trans_PT3D.device)
-
-        visual_dict = {"scenes": {"points": pcl, "cameras": visual_cameras}}
-
-        unproj_dense_points3D = predictions["unproj_dense_points3D"]
-        if unproj_dense_points3D is not None:
-            unprojected_rgb_points_list = []
-            for unproj_img_name in sorted(unproj_dense_points3D.keys()):
-                unprojected_rgb_points = torch.from_numpy(unproj_dense_points3D[unproj_img_name])
-                unprojected_rgb_points_list.append(unprojected_rgb_points)
-
-                # Separate 3D point locations and RGB colors
-                point_locations = unprojected_rgb_points[0]  # 3D point location
-                rgb_colors = unprojected_rgb_points[1]  # RGB color
-
-                # Create a mask for points within the specified range
-                valid_mask = point_locations.abs().max(-1)[0] <= 512
-
-                # Create a Pointclouds object with valid points and their RGB colors
-                point_cloud = Pointclouds(
-                    points=point_locations[valid_mask][None],
-                    features=rgb_colors[valid_mask][None],
-                )
-
-                # Add the point cloud to the visual dictionary
-                visual_dict["scenes"][f"unproj_{unproj_img_name}"] = point_cloud
-
-        fig = plot_scene(visual_dict, camera_scale=0.05)
-
-        env_name = f"demo_visual_{seq_name}"
-        print(f"Visualizing the scene by visdom at env: {env_name}")
-
-        self.viz.plotlyplot(fig, env=env_name, win="3D")
-
     def visualize_3D_in_gradio(self, predictions, seq_name=None, output_dir=None):
         from vggsfm.utils.gradio import visualize_by_gradio, vggsfm_predictions_to_glb
 
@@ -1024,43 +960,41 @@ def predict_tracks(
         # Switch so that query_index frame stays at the first frame
         # This largely simplifies the code structure of tracker
         new_order = calculate_index_mappings(query_index, frame_num, device=device)
-        images_feed, fmaps_feed = switch_tensor_order([images, fmaps_for_tracker], new_order)
+        with image_order_swap([images, fmaps_for_tracker], query_index) as (images_feed, fmaps_feed):
+            all_points_num = images_feed.shape[1] * query_points.shape[1]
+            if all_points_num > max_points_num:
+                print("Predict tracks in chunks to fit in memory")
 
-        all_points_num = images_feed.shape[1] * query_points.shape[1]
+                # Split query_points into smaller chunks to avoid memory issues
+                shuffle_indices = torch.randperm(query_points.size(1))
+                query_points = query_points[:, shuffle_indices]
 
-        if all_points_num > max_points_num:
-            print("Predict tracks in chunks to fit in memory")
+                num_splits = (all_points_num + max_points_num - 1) // max_points_num
+                fine_pred_track, pred_vis, pred_score = predict_tracks_in_chunks(
+                    track_predictor,
+                    images_feed,
+                    query_points,
+                    fmaps_feed,
+                    fine_tracking,
+                    num_splits,
+                )
 
-            # Split query_points into smaller chunks to avoid memory issues
-            shuffle_indices = torch.randperm(query_points.size(1))
-            query_points = query_points[:, shuffle_indices]
-
-            num_splits = (all_points_num + max_points_num - 1) // max_points_num
-            fine_pred_track, pred_vis, pred_score = predict_tracks_in_chunks(
-                track_predictor,
-                images_feed,
-                query_points,
-                fmaps_feed,
-                fine_tracking,
-                num_splits,
-            )
-
-            # reverse the shuffle
-            # not necessary for most cases, but important for triangulate_extra_points
-            reverse_indices = torch.zeros_like(shuffle_indices)
-            reverse_indices[shuffle_indices] = torch.arange(query_points.size(1))
-            fine_pred_track = fine_pred_track[:, :, reverse_indices, :]
-            pred_vis = pred_vis[:, :, reverse_indices]
-            if pred_score is not None:
-                pred_score = pred_score[:, :, reverse_indices]
-        else:
-            # Feed into track predictor
-            fine_pred_track, _, pred_vis, pred_score = track_predictor(
-                images_feed,
-                query_points,
-                fmaps=fmaps_feed,
-                fine_tracking=fine_tracking,
-            )
+                # reverse the shuffle
+                # not necessary for most cases, but important for triangulate_extra_points
+                reverse_indices = torch.zeros_like(shuffle_indices)
+                reverse_indices[shuffle_indices] = torch.arange(query_points.size(1))
+                fine_pred_track = fine_pred_track[:, :, reverse_indices, :]
+                pred_vis = pred_vis[:, :, reverse_indices]
+                if pred_score is not None:
+                    pred_score = pred_score[:, :, reverse_indices]
+            else:
+                # Feed into track predictor
+                fine_pred_track, _, pred_vis, pred_score = track_predictor(
+                    images_feed,
+                    query_points,
+                    fmaps=fmaps_feed,
+                    fine_tracking=fine_tracking,
+                )
 
         # Switch back the predictions
         fine_pred_track, pred_vis, pred_score = switch_tensor_order([fine_pred_track, pred_vis, pred_score], new_order)

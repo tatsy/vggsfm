@@ -6,8 +6,8 @@
 
 
 import numpy as np
-import pycolmap
 import torch
+import pycolmap
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -23,7 +23,7 @@ def batch_matrix_to_pycolmap(
     shared_camera=False,
     camera_type="SIMPLE_PINHOLE",
     extra_params=None,
-):
+) -> pycolmap.Reconstruction:
     """
     Convert Batched Pytorch Tensors to PyCOLMAP
 
@@ -64,9 +64,7 @@ def batch_matrix_to_pycolmap(
 
     # Only add 3D points that have sufficient 2D points
     for vidx in valid_idx:
-        reconstruction.add_point3D(
-            points3d[vidx], pycolmap.Track(), np.zeros(3)
-        )
+        reconstruction.add_point3D(points3d[vidx], pycolmap.Track(), np.zeros(3))
 
     num_points3D = len(valid_idx)
 
@@ -93,9 +91,7 @@ def batch_matrix_to_pycolmap(
                     ]
                 )
             else:
-                raise ValueError(
-                    f"Camera type {camera_type} is not supported yet"
-                )
+                raise ValueError(f"Camera type {camera_type} is not supported yet")
 
             camera = pycolmap.Camera(
                 model=camera_type,
@@ -127,17 +123,13 @@ def batch_matrix_to_pycolmap(
         for point3D_id in range(1, num_points3D + 1):
             original_track_idx = valid_idx[point3D_id - 1]
 
-            if (
-                reconstruction.points3D[point3D_id].xyz < max_points3D_val
-            ).all():
+            if (reconstruction.points3D[point3D_id].xyz < max_points3D_val).all():
                 if masks[fidx][original_track_idx]:
                     # It seems we don't need +0.5 for BA
                     point2D_xy = tracks[fidx][original_track_idx]
                     # Please note when adding the Point2D object
                     # It not only requires the 2D xy location, but also the id to 3D point
-                    points2D_list.append(
-                        pycolmap.Point2D(point2D_xy, point3D_id)
-                    )
+                    points2D_list.append(pycolmap.Point2D(point2D_xy, point3D_id))
 
                     # add element
                     track = reconstruction.points3D[point3D_id].track
@@ -159,9 +151,7 @@ def batch_matrix_to_pycolmap(
     return reconstruction
 
 
-def pycolmap_to_batch_matrix(
-    reconstruction, device="cuda", camera_type="SIMPLE_PINHOLE"
-):
+def pycolmap_to_batch_matrix(reconstruction, device="cuda", camera_type="SIMPLE_PINHOLE"):
     """
     Convert a PyCOLMAP Reconstruction Object to batched PyTorch tensors.
 

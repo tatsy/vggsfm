@@ -15,10 +15,10 @@ import numpy as np
 import torch
 import matplotlib
 import torch.nn.functional as F
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from scipy.spatial.transform import Rotation as sciR
 
-from minipytorch3d.cameras import CamerasBase, PerspectiveCameras
+from minipytorch3d.cameras import PerspectiveCameras
 
 from .metric import closed_form_inverse, closed_form_inverse_OpenCV
 
@@ -58,15 +58,10 @@ def average_camera_prediction(
     for query_index in query_indices:
         # Create a new order to place the query frame at the first position
         new_order = calculate_index_mappings(query_index, num_frames, device=device)
-        reshaped_image_ordered = switch_tensor_order(
-            [reshaped_image], new_order, dim=0
-        )[0]
-
-        # Predict camera parameters using the reordered image
-        # NOTE the output has been in OPENCV format instead of PyTorch3D
-        pred_cameras = camera_predictor(reshaped_image_ordered, batch_size=batch_size)[
-            "pred_cameras"
-        ]
+        with image_order_swap([reshaped_image], query_index, dim=0) as reshaped_image_ordered:
+            # Predict camera parameters using the reordered image
+            # NOTE the output has been in OPENCV format instead of PyTorch3D
+            pred_cameras = camera_predictor(reshaped_image_ordered[0], batch_size=batch_size)["pred_cameras"]
 
         R = pred_cameras.R
         abs_T = pred_cameras.T
@@ -104,9 +99,7 @@ def average_camera_prediction(
     focal_lengths = torch.concat(focal_lengths)
 
     # Average the rotation matrices using a helper function
-    avg_rotation_matrices = average_batch_rotation_matrices(
-        rotation_matrices.cpu().numpy()
-    )
+    avg_rotation_matrices = average_batch_rotation_matrices(rotation_matrices.cpu().numpy())
     avg_rotation_matrices = torch.from_numpy(avg_rotation_matrices).to(device)
 
     # Compute the average translation and focal length
@@ -161,6 +154,37 @@ def average_batch_rotation_matrices(batch_rotation_matrices):
     return average_rotation_matrices
 
 
+class ImageOrderSwap(object):
+    def __init__(self, list_of_images: list[torch.Tensor], query_index: int, dim: int = 1):
+        self.query_index = query_index
+        self.list_of_images = list_of_images
+        self.fwd_idx = torch.tensor([0, query_index], dtype=torch.int64, device=list_of_images[0].device)
+        self.rev_idx = torch.tensor([query_index, 0], dtype=torch.int64, device=list_of_images[0].device)
+        self.dim = dim
+
+    def __enter__(self):
+        if self.query_index == 0:
+            return self.list_of_images
+
+        for i in range(len(self.list_of_images)):
+            images = self.list_of_images[i]
+            images.index_copy_(self.dim, self.fwd_idx, images.index_select(self.dim, self.rev_idx))
+
+        return self.list_of_images
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.query_index == 0:
+            return
+
+        for i in range(len(self.list_of_images)):
+            images = self.list_of_images[i]
+            images.index_copy_(self.dim, self.rev_idx, images.index_select(self.dim, self.fwd_idx))
+
+
+def image_order_swap(list_of_images: list[torch.Tensor], query_index: int, dim: int = 1):
+    return ImageOrderSwap(list_of_images, query_index, dim)
+
+
 def calculate_index_mappings(query_index, S, device=None):
     """
     Construct an order that we can switch [query_index] and [0]
@@ -176,10 +200,7 @@ def switch_tensor_order(tensors, order, dim=1):
     """
     Switch the tensor among the specific dimension
     """
-    return [
-        (torch.index_select(tensor, dim, order) if tensor is not None else None)
-        for tensor in tensors
-    ]
+    return [(torch.index_select(tensor, dim, order) if tensor is not None else None) for tensor in tensors]
 
 
 def transform_camera_relative_to_first(pred_cameras, batch_size):
@@ -255,9 +276,7 @@ def generate_rank_by_interval(N, k):
     return result
 
 
-def generate_rank_by_dino(
-    reshaped_image, camera_predictor, query_frame_num, image_size=336
-):
+def generate_rank_by_dino(reshaped_image, camera_predictor, query_frame_num, image_size=336):
     # Downsample image to image_size x image_size
     # because we found it is unnecessary to use high resolution
     rgbs = F.interpolate(
@@ -292,9 +311,7 @@ def generate_rank_by_dino(
     # try to find the farthest frame,
     # then the farthest to the last found frame
     # (frames are not allowed to be found twice)
-    fps_idx = farthest_point_sampling(
-        distance_matrix, query_frame_num, most_common_frame_index
-    )
+    fps_idx = farthest_point_sampling(distance_matrix, query_frame_num, most_common_frame_index)
 
     return fps_idx
 
@@ -311,9 +328,7 @@ def visual_query_points(images, query_index, query_points, save_name="image_cv2.
     """
     # Convert the image from RGB to BGR
     image_cv2 = cv2.cvtColor(
-        (images[:, query_index].squeeze().permute(1, 2, 0).cpu().numpy() * 255).astype(
-            np.uint8
-        ),
+        (images[:, query_index].squeeze().permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8),
         cv2.COLOR_RGB2BGR,
     )
 
@@ -327,9 +342,7 @@ def visual_query_points(images, query_index, query_points, save_name="image_cv2.
 
 def read_array(path):
     with open(path, "rb") as fid:
-        width, height, channels = np.genfromtxt(
-            fid, delimiter="&", max_rows=1, usecols=(0, 1, 2), dtype=int
-        )
+        width, height, channels = np.genfromtxt(fid, delimiter="&", max_rows=1, usecols=(0, 1, 2), dtype=int)
         fid.seek(0)
         num_delimiter = 0
         byte = fid.read(1)
@@ -392,9 +405,7 @@ def filter_invisible_reprojections(uvs_int, depths):
     """
 
     # Find unique rows and their indices
-    _, inverse_indices, counts = np.unique(
-        uvs_int, axis=0, return_inverse=True, return_counts=True
-    )
+    _, inverse_indices, counts = np.unique(uvs_int, axis=0, return_inverse=True, return_counts=True)
 
     # Initialize mask with True (keep all points initially)
     mask = np.ones(uvs_int.shape[0], dtype=bool)
@@ -522,9 +533,7 @@ def create_video_with_reprojections(
     return img_with_circles_list
 
 
-def save_video_with_reprojections(
-    output_path, img_with_circles_list, video_size, fps=1
-):
+def save_video_with_reprojections(output_path, img_with_circles_list, video_size, fps=1):
     """
     Saves a list of images as a video.
 
@@ -536,9 +545,7 @@ def save_video_with_reprojections(
     """
     print("Saving video with reprojections")
 
-    video_writer = cv2.VideoWriter(
-        output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, video_size
-    )
+    video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, video_size)
 
     for img_with_circles in img_with_circles_list:
         video_writer.write(img_with_circles)
@@ -549,18 +556,14 @@ def save_video_with_reprojections(
 
 def create_depth_map_visual(depth_map, raw_img, output_filename):
     # Normalize the depth map to the range 0-255
-    depth_map_visual = (
-        (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min()) * 255.0
-    )
+    depth_map_visual = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min()) * 255.0
     depth_map_visual = depth_map_visual.astype(np.uint8)
 
     # Get the colormap
     cmap = matplotlib.colormaps.get_cmap("Spectral_r")
 
     # Apply the colormap and convert to uint8
-    depth_map_visual = (cmap(depth_map_visual)[:, :, :3] * 255)[:, :, ::-1].astype(
-        np.uint8
-    )
+    depth_map_visual = (cmap(depth_map_visual)[:, :, :3] * 255)[:, :, ::-1].astype(np.uint8)
 
     # Create a white split region
     split_region = np.ones((raw_img.shape[0], 50, 3), dtype=np.uint8) * 255
@@ -620,9 +623,7 @@ def align_dense_depth_maps(
 
     depth_dict = {}
     unproj_dense_points3D = {}
-    fname_to_id = {
-        reconstruction.images[imgid].name: imgid for imgid in reconstruction.images
-    }
+    fname_to_id = {reconstruction.images[imgid].name: imgid for imgid in reconstruction.images}
 
     for img_basename in tqdm(sparse_depth, desc="Load monocular depth and Align"):
         sparse_uvd = np.array(sparse_depth[img_basename])
@@ -712,21 +713,15 @@ def align_dense_depth_maps(
             depth_values = depth_values[valid_depth_mask]
 
             unproject_points = pycam.cam_from_img(sampled_points2d)
-            unproject_points_homo = np.hstack(
-                (unproject_points, np.ones((unproject_points.shape[0], 1)))
-            )
+            unproject_points_homo = np.hstack((unproject_points, np.ones((unproject_points.shape[0], 1))))
             unproject_points_withz = unproject_points_homo * depth_values.reshape(-1, 1)
-            unproject_points_world = (
-                pyimg.cam_from_world.inverse() * unproject_points_withz
-            )
+            unproject_points_world = pyimg.cam_from_world.inverse() * unproject_points_withz
 
             rgb_image = original_images[img_basename] / 255.0
             rgb = rgb_image.reshape(-1, 3)
             rgb = rgb[valid_depth_mask]
 
-            unproj_dense_points3D[img_basename] = np.array(
-                [unproject_points_world, rgb]
-            )
+            unproj_dense_points3D[img_basename] = np.array([unproject_points_world, rgb])
 
     if not visual_dense_point_cloud:
         unproj_dense_points3D = None
@@ -763,12 +758,8 @@ def generate_grid_samples(rect, N=None, pixel_interval=None):
         num_samples_y = int(N / num_samples_x)
 
     # Generate linspace for x and y coordinates
-    x_coords = torch.linspace(
-        topleft_x, bottomright_x, num_samples_x, device=rect.device
-    )
-    y_coords = torch.linspace(
-        topleft_y, bottomright_y, num_samples_y, device=rect.device
-    )
+    x_coords = torch.linspace(topleft_x, bottomright_x, num_samples_x, device=rect.device)
+    y_coords = torch.linspace(topleft_y, bottomright_y, num_samples_y, device=rect.device)
 
     # Create a meshgrid of x and y coordinates
     grid_x, grid_y = torch.meshgrid(x_coords, y_coords, indexing="ij")

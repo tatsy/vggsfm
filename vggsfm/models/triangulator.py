@@ -6,33 +6,32 @@
 
 
 import numpy as np
-import pycolmap
 import torch
+import pycolmap
 import torch.nn as nn
 from torch.amp import autocast
 
+# #####################
+from .utils import get_EFP
 from ..utils.triangulation import (
-    global_BA,
     init_BA,
-    init_refine_pose,
-    iterative_global_BA,
+    global_BA,
     refine_pose,
-    triangulate_by_pair,
+    init_refine_pose,
     triangulate_tracks,
+    iterative_global_BA,
+    triangulate_by_pair,
 )
 from ..utils.triangulation_helpers import cam_from_img, filter_all_points3D
 
-# #####################
-from .utils import get_EFP
-
 
 class Triangulator(nn.Module):
-    def __init__(self, cfg=None):
-        super().__init__()
+    def __init__(self, cfg):
+        super(Triangulator, self).__init__()
         """
         The module for triangulation and BA adjustment 
-        
-        NOTE After VGGSfM v1.1, we remove the learnable parameters of Triangulator.
+        NOTE:
+        After VGGSfM v1.1, we remove the learnable parameters of Triangulator.
         Now this uses RANSAC DLT to triangulate and bundle adjust.
         We plan to bring back deep Triangulator in v2.1
         Check this for more details: 
@@ -72,11 +71,8 @@ class Triangulator(nn.Module):
 
         with autocast(device_type="cuda", dtype=torch.float32):
             B, S, _, H, W = images.shape
-            _, _, N, _ = pred_tracks.shape
 
-            assert (
-                B == 1
-            )  # The released implementation now only supports batch=1 during inference
+            assert B == 1  # The released implementation now only supports batch=1 during inference
 
             image_size = torch.tensor([W, H], dtype=pred_tracks.dtype, device=device)
             # extrinsics: B x S x 3 x 4
@@ -120,8 +116,8 @@ class Triangulator(nn.Module):
             # we first triangulate a point cloud for each pair of query-reference images,
             # i.e., we have S-1 3D point clouds
             # points_3d_pair: S-1 x N x 3
-            (points_3d_pair, cheirality_mask_pair, triangle_value_pair) = (
-                triangulate_by_pair(extrinsics[None], tracks_normalized[None])
+            (points_3d_pair, cheirality_mask_pair, triangle_value_pair) = triangulate_by_pair(
+                extrinsics[None], tracks_normalized[None]
             )
 
             # Check which point cloud can provide sufficient inliers
@@ -207,20 +203,18 @@ class Triangulator(nn.Module):
 
                     force_estimate = refine_idx == (robust_refine - 1)
 
-                    (extrinsics, intrinsics, extra_params, valid_param_mask) = (
-                        refine_pose(
-                            extrinsics,
-                            intrinsics,
-                            extra_params,
-                            inlier_vis_all,
-                            points3D,
-                            pred_tracks,
-                            valid_tracks,
-                            image_size,
-                            force_estimate=force_estimate,
-                            shared_camera=shared_camera,
-                            camera_type=camera_type,
-                        )
+                    (extrinsics, intrinsics, extra_params, valid_param_mask) = refine_pose(
+                        extrinsics,
+                        intrinsics,
+                        extra_params,
+                        inlier_vis_all,
+                        points3D,
+                        pred_tracks,
+                        valid_tracks,
+                        image_size,
+                        force_estimate=force_estimate,
+                        shared_camera=shared_camera,
+                        camera_type=camera_type,
                     )
 
                     (
@@ -299,9 +293,7 @@ class Triangulator(nn.Module):
             )
             if extra_params is not None:
                 valid_extra_params_mask = (extra_params.abs() <= 1.0).all(-1)
-                valid_param_mask = torch.logical_and(
-                    valid_param_mask, valid_extra_params_mask
-                )
+                valid_param_mask = torch.logical_and(valid_param_mask, valid_extra_params_mask)
 
             valid_trans_mask = (trans_BA.abs() <= 30).all(-1)
             valid_frame_mask = torch.logical_and(valid_param_mask, valid_trans_mask)
@@ -317,17 +309,13 @@ class Triangulator(nn.Module):
 
                 valid_track_rgb = pred_track_rgb[:, valid_tracks]
 
-                sum_rgb = (BA_inlier_masks.float()[..., None] * valid_track_rgb).sum(
-                    dim=0
-                )
+                sum_rgb = (BA_inlier_masks.float()[..., None] * valid_track_rgb).sum(dim=0)
                 points3D_rgb = sum_rgb / BA_inlier_masks.sum(dim=0)[:, None]
 
                 if points3D_rgb.shape[0] == max(reconstruction.point3D_ids()):
                     for point3D_id in reconstruction.points3D:
                         color_255 = points3D_rgb[point3D_id - 1].cpu().numpy() * 255
-                        reconstruction.points3D[point3D_id].color = np.round(
-                            color_255
-                        ).astype(np.uint8)
+                        reconstruction.points3D[point3D_id].color = np.round(color_255).astype(np.uint8)
                 else:
                     print(
                         "Cannot save point rgb colors to colmap reconstruction object. Please file an issue in github. "
@@ -372,13 +360,12 @@ class Triangulator(nn.Module):
         # Conduct triangulation to all the frames
         # We adopt LORANSAC here again
 
-        (best_triangulated_points, best_inlier_num, best_inlier_mask) = (
-            triangulate_tracks(
-                extrinsics,
-                tracks_normalized_refined,  # TxNx2
-                track_vis=pred_vis,  # TxN
-                track_score=pred_score,  # TxN
-            )
+        (best_triangulated_points, best_inlier_num, best_inlier_mask) = triangulate_tracks(
+            extrinsics,
+            tracks_normalized_refined,  # TxNx2
+            track_vis=pred_vis,  # TxN
+            track_score=pred_score,  # TxN
+            max_tri_points_num=self.cfg.max_tri_points_num,
         )
 
         # Determine valid tracks based on inlier numbers
