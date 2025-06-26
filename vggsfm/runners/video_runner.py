@@ -9,6 +9,7 @@ import time
 import random
 import logging
 import datetime
+from typing import Any
 from collections import defaultdict
 
 import numpy as np
@@ -29,7 +30,7 @@ class VideoRunner(VGGSfMRunner):
         super(VideoRunner, self).__init__(cfg)
 
         self.point_dict = {}
-        self.frame_dict = defaultdict(dict)
+        self.frame_dict: defaultdict[int, dict[Any, Any]] = defaultdict(dict)
         self.crop_params = None
         self.intrinsics = None
 
@@ -130,8 +131,8 @@ class VideoRunner(VGGSfMRunner):
 
             self.convert_pred_to_point_frame_dict(init_pred, start_idx, end_idx)
 
+            logging.info('Start main reconstruction loop')
             window_counter = 0  # Initialize a counter for windows
-
             while end_idx < T:
                 if (T - end_idx) <= int(1.25 * window_size):
                     start_idx, end_idx, move_success, _ = self.move_window(start_idx, end_idx, T - end_idx)
@@ -158,12 +159,11 @@ class VideoRunner(VGGSfMRunner):
                 window_counter += 1  # Increment the window counter
 
             # Conduct a BA for the entire sequence
-            print("Running joint BA for the entire sequence:")
+            logging.info("Running joint BA for the entire sequence:")
             self.joint_BA(0, T, normalize=True)
 
-            print("Updating points color")
+            logging.info("Updating points color")
             self._update_points_color()  # TODO: _update_points_color is too slow, fix it
-            print("Points color updated")
 
             predictions = self.dicts_to_output(0, T, back_to_original_resolution=True)
 
@@ -202,15 +202,14 @@ class VideoRunner(VGGSfMRunner):
 
     def dicts_to_output(self, start_idx, end_idx, back_to_original_resolution=False):
         print("Converting predictions to the output format")
-        predictions = {}
-
-        T = self.images.shape[1]
-        reconstruction = self.dicts_to_reconstruction(start_idx, end_idx, extract_color=True)
-
-        basenames = [os.path.basename(path) for path in self.image_paths]
+        assert self.crop_params is not None, "Crop parameters must be set before converting to output format"
         if self.cfg.extra_pt_pixel_interval > 0:
             raise ValueError("Extra points have not been supported for video runner; Stay tuned Please!")
 
+        predictions = {}
+        T = self.images.shape[1]
+        basenames = [os.path.basename(path) for path in self.image_paths]
+        reconstruction = self.dicts_to_reconstruction(start_idx, end_idx, extract_color=True)
         if back_to_original_resolution:
             reconstruction = self.rename_colmap_recons_and_rescale_camera(
                 reconstruction,
@@ -410,8 +409,9 @@ class VideoRunner(VGGSfMRunner):
     def _update_points_color(self, reverse=False):
         for point_id, point_data in self.point_dict.items():
             colors = []
-            for i, frame_id in enumerate(point_data["track"].keys()):
-                uu, vv = torch.floor(point_data["track"][frame_id]["uv"]).long()
+            for i, frame_id in enumerate(point_data['track'].keys()):
+                uu, vv = torch.floor(point_data['track'][frame_id]['uv']).long()
+
                 # vv, uu or uu, vv?
                 if vv < self.images.shape[-2] and uu < self.images.shape[-1]:
                     if reverse:
@@ -420,11 +420,11 @@ class VideoRunner(VGGSfMRunner):
                         colors.append(self.images[0, frame_id, :, (vv), (uu)])
 
             if len(colors) > 0:
-                colors = torch.stack(colors)
-                avg_color = colors.float().mean(dim=0)
+                colors_tensor = torch.stack(colors)
+                avg_color = colors_tensor.float().mean(dim=0)
 
                 # Update point_dict with the computed RGB value
-                self.point_dict[point_id]["rgb"] = avg_color.cpu()
+                self.point_dict[point_id]['rgb'] = avg_color.detach().cpu()
 
     def joint_BA(self, start_idx, end_idx, reproj_error=2.0, tri_angle=1.5, normalize=True):
         reconstruction = self.dicts_to_reconstruction(start_idx, end_idx)
@@ -503,8 +503,9 @@ class VideoRunner(VGGSfMRunner):
             try:
                 pyimg.points2D = pycolmap.ListPoint2D(points2D_list)
                 # pyimg.registered = True
-            except:
-                print(f"frame {image_idx} is out of BA")
+            except Exception as e:
+                logging.warning(f"frame {image_idx} is out of BA")
+                print(e)
                 # pyimg.registered = False
 
             reconstruction.add_image(pyimg)
@@ -525,11 +526,11 @@ class VideoRunner(VGGSfMRunner):
         # Convert reconstruction to point_dict
         for pycolmap_point3D_id in sorted(reconstruction.point3D_ids()):
             point3D = reconstruction.points3D[pycolmap_point3D_id]
-            point_dict = {
-                "id": point3D_id,
-                "xyz": torch.from_numpy(point3D.xyz).float(),
-                "rgb": torch.from_numpy(point3D.color),
-                "track": {},
+            point_dict: dict[str, Any] = {
+                'id': point3D_id,
+                'xyz': torch.from_numpy(point3D.xyz).float(),
+                'rgb': torch.from_numpy(point3D.color),
+                'track': {},
             }
 
             for track_element in point3D.track.elements:
@@ -537,12 +538,11 @@ class VideoRunner(VGGSfMRunner):
                 point2D_idx = track_element.point2D_idx
                 point2D = reconstruction.images[image_id].points2D[point2D_idx]
 
-                point_dict["track"][image_id] = {
-                    "uv": torch.from_numpy(point2D.xy).float(),
-                    "vis": torch.from_numpy(np.array([1.0])).float(),
+                point_dict['track'][image_id] = {
+                    'uv': torch.tensor(point2D.xy, dtype=torch.float32),
+                    'vis': torch.tensor([1.0], dtype=torch.float32),
                 }
-
-                self.frame_dict[image_id]["visible_points"].append(point3D_id)
+                self.frame_dict[image_id]['visible_points'].append(point3D_id)
 
             self.point_dict[point3D_id] = point_dict
             point3D_id += 1
@@ -599,13 +599,14 @@ class VideoRunner(VGGSfMRunner):
         # visual_query_points(window_images, 0, window_pred_track[0:1])
         # from vggsfm.utils.visualizer import Visualizer
         # vis = Visualizer(save_dir="visual_debug", linewidth=1)
-        # vis.visualize(window_images * 255, window_tracks_for_exist_points[None], window_vis_inlier_for_exist_points[None][..., None],
+        # vis.visualize(window_images * 255, window_tracks_for_exist_points[None],
+        #               window_vis_inlier_for_exist_points[None][..., None],
         #               filename=f"start_{start_idx}_end_{end_idx}")
         ###############################################################
 
         per_frame_enough_flag = window_vis_inlier_for_exist_points.sum(dim=1) < 16
         if per_frame_enough_flag.any():
-            first_invalid_index = (per_frame_enough_flag == True).nonzero(as_tuple=True)[0][0].item()
+            first_invalid_index = per_frame_enough_flag.nonzero(as_tuple=True)[0][0].item()
 
             if first_invalid_index > 2:
                 window_size = first_invalid_index - 1  # TODO: -1 or not?
@@ -664,6 +665,7 @@ class VideoRunner(VGGSfMRunner):
         window_tracks_all = torch.cat([exist_valid_tracks, window_new_tracks], dim=1)
         window_inlier_masks_all = torch.cat([exist_valid_inlier_masks, window_new_inlier_masks], dim=1)
 
+        assert self.intrinsics is not None, "Intrinsics must be set up to here!"
         rec = batch_matrix_to_pycolmap(
             window_points_all,
             align_extri_window_plus_one,
@@ -1091,13 +1093,13 @@ class VideoRunner(VGGSfMRunner):
     def update_dicts_by_reconstruction(self, reconstruction, start_idx, end_idx):
         # Update dicts by reconstruction
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]["extri"] = torch.tensor(image.cam_from_world.matrix(), dtype=reconstruction.dtype)
+            self.frame_dict[image_id]['extri'] = torch.tensor(image.cam_from_world.matrix(), dtype=reconstruction.dtype)
 
         for point3D_id in sorted(self.point_dict.keys()):
             pycolmap_point3D_id = point3D_id + 1
             if pycolmap_point3D_id in reconstruction.point3D_ids():
                 point3D = reconstruction.points3D[pycolmap_point3D_id]
-                self.point_dict[point3D_id]["xyz"] = torch.from_numpy(point3D.xyz).float()
+                self.point_dict[point3D_id]['xyz'] = torch.tensor(point3D.xyz, dtype=torch.float32)
                 visible_frames = []
                 for track_element in point3D.track.elements:
                     visible_frames.append(track_element.image_id)
@@ -1115,17 +1117,21 @@ class VideoRunner(VGGSfMRunner):
                         self.frame_dict[frame_idx]["visible_points"].remove(point3D_id)
 
 
-def log_ba_summary(summary):
-    logging.info(f"Residuals : {summary.num_residuals_reduced}")
+def log_ba_summary(summary) -> bool:
+    print('==============================================================================')
+    print('Global bundle adjustment')
+    print('==============================================================================')
+    print(f"Residuals : {summary.num_residuals_reduced}")
     if summary.num_residuals_reduced > 0:
-        logging.info(f"Parameters : {summary.num_effective_parameters_reduced}")
-        logging.info(f"Iterations : {summary.num_successful_steps + summary.num_unsuccessful_steps}")
-        logging.info(f"Time : {summary.total_time_in_seconds} [s]")
-        logging.info(f"Initial cost : {np.sqrt(summary.initial_cost / summary.num_residuals_reduced)} [px]")
-        logging.info(f"Final cost : {np.sqrt(summary.final_cost / summary.num_residuals_reduced)} [px]")
+        print(f"  Parameters : {summary.num_effective_parameters_reduced}")
+        print(f"  Iterations : {summary.num_successful_steps + summary.num_unsuccessful_steps}")
+        print(f"        Time : {summary.total_time_in_seconds} [s]")
+        print(f"Initial cost : {np.sqrt(summary.initial_cost / summary.num_residuals_reduced)} [px]")
+        print(f"  Final cost : {np.sqrt(summary.final_cost / summary.num_residuals_reduced)} [px]")
+        logging.info('Bundle adjustment completed successfully!')
         return True
     else:
-        print("No residuals reduced")
+        logging.warning('No residuals reduced...')
         return False
 
 

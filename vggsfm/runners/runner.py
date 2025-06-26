@@ -8,6 +8,7 @@
 import os
 import sys
 import copy
+import logging
 import datetime
 from collections import defaultdict
 
@@ -73,9 +74,9 @@ class VGGSfMRunner(object):
         # Set up mixed precision
         assert cfg.mixed_precision in ("None", "bf16", "fp16")
         self.dtype = {
-            "None": torch.float32,
-            "bf16": torch.bfloat16,
-            "fp16": torch.float16,
+            'None': torch.float32,
+            'bf16': torch.bfloat16,
+            'fp16': torch.float16,
         }.get(cfg.mixed_precision, None)
 
         if self.dtype is None:
@@ -102,7 +103,7 @@ class VGGSfMRunner(object):
             checkpoint = torch.load(self.cfg.resume_ckpt)
             vggsfm.load_state_dict(checkpoint, strict=True)
         self.vggsfm_model = vggsfm.to(self.device).eval()
-        print("VGGSfM built successfully")
+        logging.info("VGGSfM built successfully!")
 
     def build_monocular_depth_model(self):
         """
