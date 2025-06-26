@@ -12,8 +12,8 @@ import torch.nn as nn
 from torch.amp import autocast
 
 # #####################
-from .utils import get_EFP
-from ..utils.triangulation import (
+from vggsfm.models.utils import get_EFP
+from vggsfm.utils.triangulation import (
     init_BA,
     global_BA,
     refine_pose,
@@ -22,7 +22,7 @@ from ..utils.triangulation import (
     iterative_global_BA,
     triangulate_by_pair,
 )
-from ..utils.triangulation_helpers import cam_from_img, filter_all_points3D
+from vggsfm.utils.triangulation_helpers import cam_from_img, filter_all_points3D
 
 
 class Triangulator(nn.Module):
@@ -80,8 +80,6 @@ class Triangulator(nn.Module):
             # focal_length, principal_point : B x S x 2
 
             extrinsics, intrinsics = get_EFP(pred_cameras, image_size, B, S)
-
-            extrinsics = extrinsics.double()
             inlier_fmat = preliminary_dict["fmat_inlier_mask"]
 
             # Remove B dim
@@ -105,6 +103,7 @@ class Triangulator(nn.Module):
                 extra_params = torch.zeros_like(extrinsics[:, 0, 0:1])
 
             tracks_normalized = cam_from_img(pred_tracks, intrinsics)
+
             # Visibility inlier
             inlier_vis = pred_vis > 0.05  # TODO: avoid hardcoded
             inlier_vis = inlier_vis[1:]
@@ -116,14 +115,15 @@ class Triangulator(nn.Module):
             # we first triangulate a point cloud for each pair of query-reference images,
             # i.e., we have S-1 3D point clouds
             # points_3d_pair: S-1 x N x 3
-            (points_3d_pair, cheirality_mask_pair, triangle_value_pair) = triangulate_by_pair(
-                extrinsics[None], tracks_normalized[None]
+            points_3d_pair, cheirality_mask_pair, triangle_value_pair = triangulate_by_pair(
+                extrinsics.unsqueeze(0),
+                tracks_normalized.unsqueeze(0),
             )
 
             # Check which point cloud can provide sufficient inliers
             # that pass the triangulation angle and cheirality check
             # Pick the highest inlier_geo_vis one as the initial point cloud
-            inlier_total, valid_tri_angle_thres = find_best_initial_pair(
+            inlier_total, _ = find_best_initial_pair(
                 inlier_geo_vis,
                 cheirality_mask_pair,
                 triangle_value_pair,
@@ -159,7 +159,7 @@ class Triangulator(nn.Module):
             # Basically it is a bundle adjustment without optmizing 3D points
             # It is fine even this step fails
 
-            (extrinsics, intrinsics, extra_params, valid_param_mask) = init_refine_pose(
+            extrinsics, intrinsics, extra_params, valid_param_mask = init_refine_pose(
                 extrinsics,
                 intrinsics,
                 extra_params,
@@ -317,12 +317,9 @@ class Triangulator(nn.Module):
                         color_255 = points3D_rgb[point3D_id - 1].cpu().numpy() * 255
                         reconstruction.points3D[point3D_id].color = np.round(color_255).astype(np.uint8)
                 else:
-                    print(
+                    raise RuntimeError(
                         "Cannot save point rgb colors to colmap reconstruction object. Please file an issue in github. "
                     )
-                    import pdb
-
-                    pdb.set_trace()
             else:
                 points3D_rgb = None
 
@@ -360,7 +357,7 @@ class Triangulator(nn.Module):
         # Conduct triangulation to all the frames
         # We adopt LORANSAC here again
 
-        (best_triangulated_points, best_inlier_num, best_inlier_mask) = triangulate_tracks(
+        best_triangulated_points, best_inlier_num, best_inlier_mask = triangulate_tracks(
             extrinsics,
             tracks_normalized_refined,  # TxNx2
             track_vis=pred_vis,  # TxN
@@ -372,7 +369,7 @@ class Triangulator(nn.Module):
         valid_tracks = best_inlier_num >= min_valid_track_length
 
         # Perform global bundle adjustment
-        (points3D, extrinsics, intrinsics, extra_params, reconstruction) = global_BA(
+        points3D, extrinsics, intrinsics, extra_params, reconstruction = global_BA(
             best_triangulated_points,
             valid_tracks,
             pred_tracks,

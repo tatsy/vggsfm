@@ -8,8 +8,6 @@
 import numpy as np
 import torch
 import pycolmap
-import torch.nn as nn
-import torch.nn.functional as F
 
 
 def batch_matrix_to_pycolmap(
@@ -44,16 +42,16 @@ def batch_matrix_to_pycolmap(
     assert len(points3d) == P
     assert image_size.shape[0] == 2
 
-    extrinsics = extrinsics.cpu().numpy()
-    intrinsics = intrinsics.cpu().numpy()
+    extrinsics = extrinsics.detach().cpu().numpy()
+    intrinsics = intrinsics.detach().cpu().numpy()
 
     if extra_params is not None:
-        extra_params = extra_params.cpu().numpy()
+        extra_params = extra_params.detach().cpu().numpy()
 
-    tracks = tracks.cpu().numpy()
-    masks = masks.cpu().numpy()
-    points3d = points3d.cpu().numpy()
-    image_size = image_size.cpu().numpy()
+    tracks = tracks.detach().cpu().numpy()
+    masks = masks.detach().cpu().numpy()
+    points3d = points3d.detach().cpu().numpy()
+    image_size = image_size.detach().cpu().numpy()
 
     # Reconstruction object, following the format of PyCOLMAP/COLMAP
     reconstruction = pycolmap.Reconstruction()
@@ -64,10 +62,9 @@ def batch_matrix_to_pycolmap(
 
     # Only add 3D points that have sufficient 2D points
     for vidx in valid_idx:
-        reconstruction.add_point3D(points3d[vidx], pycolmap.Track(), np.zeros(3))
+        reconstruction.add_point3D(points3d[vidx], pycolmap.Track(), np.zeros(3, dtype=np.uint8))
 
     num_points3D = len(valid_idx)
-
     camera = None
     # frame idx
     for fidx in range(N):
@@ -151,7 +148,7 @@ def batch_matrix_to_pycolmap(
     return reconstruction
 
 
-def pycolmap_to_batch_matrix(reconstruction, device="cuda", camera_type="SIMPLE_PINHOLE"):
+def pycolmap_to_batch_matrix(reconstruction, dtype=torch.float32, device="cuda", camera_type="SIMPLE_PINHOLE"):
     """
     Convert a PyCOLMAP Reconstruction Object to batched PyTorch tensors.
 
@@ -167,14 +164,12 @@ def pycolmap_to_batch_matrix(reconstruction, device="cuda", camera_type="SIMPLE_
     num_images = len(reconstruction.images)
     max_points3D_id = max(reconstruction.point3D_ids())
     points3D = np.zeros((max_points3D_id, 3))
-
     for point3D_id in reconstruction.points3D:
         points3D[point3D_id - 1] = reconstruction.points3D[point3D_id].xyz
-    points3D = torch.from_numpy(points3D).to(device)
+    points3D = torch.tensor(points3D, dtype=dtype, device=device)
 
     extrinsics = []
     intrinsics = []
-
     extra_params = [] if camera_type == "SIMPLE_RADIAL" else None
 
     for i in range(num_images):
@@ -188,16 +183,14 @@ def pycolmap_to_batch_matrix(reconstruction, device="cuda", camera_type="SIMPLE_
         calibration_matrix = pycam.calibration_matrix()
         intrinsics.append(calibration_matrix)
 
-        if camera_type == "SIMPLE_RADIAL":
+        if extra_params is not None:
             extra_params.append(pycam.params[-1])
 
     # Convert lists to torch tensors
-    extrinsics = torch.from_numpy(np.stack(extrinsics)).to(device)
-
-    intrinsics = torch.from_numpy(np.stack(intrinsics)).to(device)
-
-    if camera_type == "SIMPLE_RADIAL":
-        extra_params = torch.from_numpy(np.stack(extra_params)).to(device)
-        extra_params = extra_params[:, None]
+    extrinsics = torch.tensor(np.stack(extrinsics), dtype=dtype, device=device)
+    intrinsics = torch.tensor(np.stack(intrinsics), dtype=dtype, device=device)
+    if extra_params is not None:
+        extra_params = torch.tensor(np.stack(extra_params), dtype=dtype, device=device)
+        extra_params = extra_params.unsqueeze(1)
 
     return points3D, extrinsics, intrinsics, extra_params

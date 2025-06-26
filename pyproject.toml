@@ -28,6 +28,7 @@ dependencies = [
     "iopath (>=0.1.10,<0.2.0)",
     "joblib (>=1.5.1,<2.0.0)",
     "coloredlogs (>=15.0.1,<16.0.0)",
+    "lightglue",
 ]
 
 [tool.poetry]
@@ -53,13 +54,13 @@ torch = [
 ]
 torchvision = [
     { version = "0.22.0+cu126", markers = "extra == 'cuda'", source = "pytorch-cuda" },
-]   
+]
 xformers = [
     { version = "0.0.30", markers = "extra == 'cuda'", source = "pytorch-cuda" },
 ]
 
 [tool.poetry.dependencies]
-lightglue = { path = "dependency/LightGlue", develop = true }
+lightglue = { path = "dependency/LightGlue" }
 
 [tool.poetry.group.dev.dependencies]
 flake8-pyproject = "^1.2.3"

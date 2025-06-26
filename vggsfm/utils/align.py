@@ -42,12 +42,8 @@ def _align_camera_extrinsics_PT3D(
         R_A = (U V^T)^T
         ```
     """
-    R_src = cameras_src[
-        :, :, :3
-    ]  # Extracting the rotation matrices from [R | t]
-    R_tgt = cameras_tgt[
-        :, :, :3
-    ]  # Extracting the rotation matrices from [R | t]
+    R_src = cameras_src[:, :, :3]  # Extracting the rotation matrices from [R | t]
+    R_tgt = cameras_tgt[:, :, :3]  # Extracting the rotation matrices from [R | t]
 
     RRcov = torch.bmm(R_src, R_tgt.transpose(2, 1)).mean(0)
     U, _, V = torch.svd(RRcov)
@@ -78,12 +74,8 @@ def _align_camera_extrinsics_PT3D(
         T_A = mean(B) - mean(A) * s_A
         ```
     """
-    T_src = cameras_src[
-        :, :, 3
-    ]  # Extracting the translation vectors from [R | t]
-    T_tgt = cameras_tgt[
-        :, :, 3
-    ]  # Extracting the translation vectors from [R | t]
+    T_src = cameras_src[:, :, 3]  # Extracting the translation vectors from [R | t]
+    T_tgt = cameras_tgt[:, :, 3]  # Extracting the translation vectors from [R | t]
 
     A = torch.bmm(R_src, T_src[:, :, None])[:, :, 0]
     B = torch.bmm(R_src, T_tgt[:, :, None])[:, :, 0]
@@ -134,10 +126,7 @@ def align_and_transform_cameras_PT3D(
     aligned_R = torch.bmm(align_t_R.expand(R_src.shape[0], 3, 3), R_src)
 
     # Apply the translation alignment to the source translations
-    aligned_T = (
-        torch.bmm(align_t_T[:, None].repeat(R_src.shape[0], 1, 1), R_src)[:, 0]
-        + T_src * align_t_s
-    )
+    aligned_T = torch.bmm(align_t_T[:, None].repeat(R_src.shape[0], 1, 1), R_src)[:, 0] + T_src * align_t_s
 
     return aligned_R, aligned_T
 
@@ -164,23 +153,15 @@ def align_camera_extrinsics(
         align_t_s (float): Scaling factor for alignment.
     """
 
-    R_src = cameras_src[
-        :, :, :3
-    ]  # Extracting the rotation matrices from [R | t]
-    R_tgt = cameras_tgt[
-        :, :, :3
-    ]  # Extracting the rotation matrices from [R | t]
+    R_src = cameras_src[:, :, :3]  # Extracting the rotation matrices from [R | t]
+    R_tgt = cameras_tgt[:, :, :3]  # Extracting the rotation matrices from [R | t]
 
     RRcov = torch.bmm(R_tgt.transpose(2, 1), R_src).mean(0)
     U, _, V = torch.svd(RRcov)
     align_t_R = V @ U.t()
 
-    T_src = cameras_src[
-        :, :, 3
-    ]  # Extracting the translation vectors from [R | t]
-    T_tgt = cameras_tgt[
-        :, :, 3
-    ]  # Extracting the translation vectors from [R | t]
+    T_src = cameras_src[:, :, 3]  # Extracting the translation vectors from [R | t]
+    T_tgt = cameras_tgt[:, :, 3]  # Extracting the translation vectors from [R | t]
 
     A = torch.bmm(T_src[:, None], R_src)[:, 0]
     B = torch.bmm(T_tgt[:, None], R_src)[:, 0]
@@ -277,24 +258,17 @@ def test_align_camera_extrinsics(num_tests=10000):
         cameras_tgt = torch.cat([R_tgt, T_tgt.unsqueeze(-1)], dim=-1)
 
         # Test the alignment function
-        align_t_R, align_t_T, align_t_s = align_camera_extrinsics(
-            cameras_src, cameras_tgt, estimate_scale=True
-        )
+        align_t_R, align_t_T, align_t_s = align_camera_extrinsics(cameras_src, cameras_tgt, estimate_scale=True)
 
-        R_verify, T_verify = apply_transformation(
-            cameras_src, align_t_R, align_t_T, align_t_s, return_extri=False
-        )
+        R_verify, T_verify = apply_transformation(cameras_src, align_t_R, align_t_T, align_t_s, return_extri=False)
 
         # Verify the results
         print(test_idx)
         if not torch.allclose(R_tgt, R_verify, atol=1e-3):
-            import pdb
+            raise RuntimeError("Rotation matrices do not match after alignment.")
 
-            pdb.set_trace()
         if not torch.allclose(T_tgt, T_verify, atol=1e-3):
-            import pdb
-
-            pdb.set_trace()
+            raise RuntimeError("Translation vectors do not match after alignment.")
 
 
 if __name__ == "__main__":

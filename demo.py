@@ -7,6 +7,7 @@
 
 import hydra
 import torch
+import coloredlogs
 from omegaconf import OmegaConf, DictConfig
 
 from vggsfm.utils.utils import seed_all_random_engines
@@ -20,6 +21,7 @@ def demo_fn(cfg: DictConfig):
     """
     Main function to run the VGGSfM demo. VGGSfMRunner is the main controller.
     """
+    coloredlogs.install(level='INFO')
 
     # Print configuration
     OmegaConf.set_struct(cfg, False)

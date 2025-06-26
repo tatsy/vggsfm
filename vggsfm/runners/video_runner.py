@@ -26,14 +26,14 @@ from vggsfm.utils.triangulation_helpers import cam_from_img, filter_all_points3D
 
 class VideoRunner(VGGSfMRunner):
     def __init__(self, cfg):
-        super().__init__(cfg)
+        super(VideoRunner, self).__init__(cfg)
 
         self.point_dict = {}
         self.frame_dict = defaultdict(dict)
         self.crop_params = None
         self.intrinsics = None
 
-        assert self.cfg.shared_camera == True, "Currently only shared camera is supported for video runner"
+        assert self.cfg.shared_camera, "Currently only shared camera is supported for video runner"
 
         # TODO: add a loop detection
         # TODO: support the handle of invalid frames
@@ -139,10 +139,12 @@ class VideoRunner(VGGSfMRunner):
                     start_idx, end_idx, move_success, _ = self.move_window(start_idx, end_idx, window_size)
 
                 if not move_success:
-                    print("Moving window failed, trying again. (This should not happen in most cases)")
+                    logging.warning("Moving window failed, increase query points temporarily!")
                     self.cfg.max_query_pts = self.cfg.max_query_pts * 2
                     start_idx, end_idx, move_success, _ = self.move_window(start_idx, end_idx, window_size)
                     self.cfg.max_query_pts = self.cfg.max_query_pts // 2
+                    if not move_success:
+                        logging.error("Moving window failed again (it may cause infinite loop)!")
 
                 if window_counter % joint_BA_interval == 0:
                     print("Running joint BA:")
@@ -199,14 +201,13 @@ class VideoRunner(VGGSfMRunner):
             return predictions
 
     def dicts_to_output(self, start_idx, end_idx, back_to_original_resolution=False):
-        print("Converting Predictions to the Output Format")
+        print("Converting predictions to the output format")
         predictions = {}
 
         T = self.images.shape[1]
         reconstruction = self.dicts_to_reconstruction(start_idx, end_idx, extract_color=True)
 
         basenames = [os.path.basename(path) for path in self.image_paths]
-
         if self.cfg.extra_pt_pixel_interval > 0:
             raise ValueError("Extra points have not been supported for video runner; Stay tuned Please!")
 
@@ -227,7 +228,7 @@ class VideoRunner(VGGSfMRunner):
         # the images inside reconstruction is sorted by order
         # i.e., reconstruction.images[1] cooresponds to extrinsics[1]
         _, extrinsics, intrinsics, extra_params = pycolmap_to_batch_matrix(
-            reconstruction, self.device, camera_type=self.cfg.camera_type
+            reconstruction, device=self.device, camera_type=self.cfg.camera_type
         )
 
         predictions["extrinsics_opencv"] = extrinsics
@@ -236,7 +237,6 @@ class VideoRunner(VGGSfMRunner):
 
         points_xyz = []
         points_rgb = []
-
         for point_id in self.point_dict.keys():
             point_data = self.point_dict[point_id]
             points_xyz.append(point_data["xyz"])
@@ -320,8 +320,7 @@ class VideoRunner(VGGSfMRunner):
         extrinsics = pred["extrinsics_opencv"]
 
         # save them in cpu
-        extrinsics = extrinsics.cpu()
-
+        extrinsics = extrinsics.detach().cpu()
         for frame_idx in range(start_idx, end_idx):
             relative_frame_idx = frame_idx - start_idx
             self.frame_dict[frame_idx]["extri"] = extrinsics[relative_frame_idx]
@@ -427,14 +426,7 @@ class VideoRunner(VGGSfMRunner):
                 # Update point_dict with the computed RGB value
                 self.point_dict[point_id]["rgb"] = avg_color.cpu()
 
-    def joint_BA(
-        self,
-        start_idx,
-        end_idx,
-        reproj_error=2.0,
-        tri_angle=1.5,
-        normalize=True,
-    ):
+    def joint_BA(self, start_idx, end_idx, reproj_error=2.0, tri_angle=1.5, normalize=True):
         reconstruction = self.dicts_to_reconstruction(start_idx, end_idx)
 
         if normalize:
@@ -521,9 +513,13 @@ class VideoRunner(VGGSfMRunner):
 
     def reconstruction_to_dicts(self, reconstruction):
         # Convert reconstruction to frame_dict
+        assert self.intrinsics is not None, "Intrinsics must be set before reconstruction_to_dicts"
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]["extri"] = torch.tensor(image.cam_from_world.matrix())
-            self.frame_dict[image_id]["visible_points"] = []
+            self.frame_dict[image_id]["extri"] = torch.tensor(
+                image.cam_from_world.matrix(),
+                dtype=self.intrinsics.dtype,
+            )
+            self.frame_dict[image_id]['visible_points'] = []
 
         point3D_id = 0
         # Convert reconstruction to point_dict
@@ -607,8 +603,7 @@ class VideoRunner(VGGSfMRunner):
         #               filename=f"start_{start_idx}_end_{end_idx}")
         ###############################################################
 
-        per_frame_enough_flag = window_vis_inlier_for_exist_points.sum(dim=1) < 50
-
+        per_frame_enough_flag = window_vis_inlier_for_exist_points.sum(dim=1) < 16
         if per_frame_enough_flag.any():
             first_invalid_index = (per_frame_enough_flag == True).nonzero(as_tuple=True)[0][0].item()
 
@@ -627,7 +622,7 @@ class VideoRunner(VGGSfMRunner):
                 extri_window_plus_one = extri_window_plus_one[: (window_size + 1)]
             else:
                 # TODO drop some frames and get them back later
-                print("No valid frame, step back")
+                logging.warning('No valid frame, step back')
                 return max(0, last_start_idx - 1), max(0, start_idx - 1), False, None
 
         align_extri_window_plus_one = self.align_next_window(
@@ -680,6 +675,9 @@ class VideoRunner(VGGSfMRunner):
             camera_type=self.cfg.camera_type,
             extra_params=self.extra_params.expand(window_size + 1, -1),
         )
+        if rec.num_points3D() == 0:
+            logging.warning('No valid points, step back')
+            return max(0, last_start_idx - 1), max(0, start_idx - 1), False, None
 
         # NOTE It is window_size + 1 instead of window_size
         ba_options = pycolmap.BundleAdjustmentOptions()
@@ -702,25 +700,23 @@ class VideoRunner(VGGSfMRunner):
 
         summary = solve_bundle_adjustment(rec, ba_options, ba_config)
         ba_success = log_ba_summary(summary)
-
-        # if not ba_success:
-        #     raise RuntimeError("Bundle adjustment failed")
+        if not ba_success:
+            raise RuntimeError('Bundle adjustment failed, maybe something is wrong!')
 
         window_points3D_opt, extrinsics, _, _ = pycolmap_to_batch_matrix(
-            rec, device=self.device, camera_type=window_points_all.dtype
+            rec,
+            device=self.device,
+            camera_type=window_points_all.dtype,
         )
 
-        assert window_points3D_opt.shape[0] == window_tracks_all.shape[1]
+        assert window_points3D_opt.size(0) == window_tracks_all.size(1)
 
-        (
-            new_valid_points,
-            new_valid_tracks,
-            new_valid_inlier_masks,
-            new_valid_tracks_mask,
-        ) = self.filter_points_and_compute_masks(
-            window_points3D_opt[exist_points_3D_num:],
-            window_tracks_all[:, exist_points_3D_num:],
-            extrinsics,
+        new_valid_points, new_valid_tracks, new_valid_inlier_masks, new_valid_tracks_mask = (
+            self.filter_points_and_compute_masks(
+                window_points3D_opt[exist_points_3D_num:],
+                window_tracks_all[:, exist_points_3D_num:],
+                extrinsics,
+            )
         )
 
         new_pred = {}
@@ -734,21 +730,15 @@ class VideoRunner(VGGSfMRunner):
 
         self.convert_pred_to_point_frame_dict(new_pred, start_idx, end_idx)
 
-        (
-            refiltered_exist_points,
-            refiltered_exist_tracks,
-            refiltered_exist_inlier_masks,
-            refiltered_exist_tracks_mask,
-        ) = self.filter_points_and_compute_masks(
-            window_points3D_opt[:exist_points_3D_num],
-            window_tracks_all[:, :exist_points_3D_num],
-            extrinsics,
+        _, refiltered_exist_tracks, refiltered_exist_inlier_masks, refiltered_exist_tracks_mask = (
+            self.filter_points_and_compute_masks(
+                window_points3D_opt[:exist_points_3D_num],
+                window_tracks_all[:, :exist_points_3D_num],
+                extrinsics,
+            )
         )
-
         refiltered_exist_vis = window_vis_for_exist_points[:, exist_valid_tracks_mask][:, refiltered_exist_tracks_mask]
-
         refiltered_exist_valid_points_idx = exist_valid_points_idx[refiltered_exist_tracks_mask.cpu().numpy()]
-
         refilter_point_to_track_mapping = {}
 
         for num in range(len(refiltered_exist_valid_points_idx)):
@@ -766,7 +756,6 @@ class VideoRunner(VGGSfMRunner):
             refiltered_exist_valid_points_idx,
             point_to_track_mapping=refilter_point_to_track_mapping,
         )
-
         return start_idx, end_idx, True, None
 
     def filter_points_and_compute_masks(
@@ -876,29 +865,32 @@ class VideoRunner(VGGSfMRunner):
             refined_extrinsics.append(cam_from_world.matrix())
 
         # get the optimized cameras
-        refined_extrinsics = torch.from_numpy(np.stack(refined_extrinsics)).to(tracks.device)
+        refined_extrinsics = torch.Tensor(np.stack(refined_extrinsics)).type_as(tracks)
         return refined_extrinsics
 
     def build_camera_for_video(self):
         if self.cfg.camera_type == "SIMPLE_RADIAL":
             pycolmap_intri = np.array(
                 [
-                    self.intrinsics[0][0, 0].cpu().numpy(),
-                    self.intrinsics[0][0, 2].cpu().numpy(),
-                    self.intrinsics[0][1, 2].cpu().numpy(),
-                    self.extra_params[0][0].cpu().numpy(),
-                ]
+                    self.intrinsics[0][0, 0].item(),
+                    self.intrinsics[0][0, 2].item(),
+                    self.intrinsics[0][1, 2].item(),
+                    self.extra_params[0][0].item(),
+                ],
+                dtype=np.float32,
             )
         elif self.cfg.camera_type == "SIMPLE_PINHOLE":
             pycolmap_intri = np.array(
                 [
-                    self.intrinsics[0][0, 0].cpu().numpy(),
-                    self.intrinsics[0][0, 2].cpu().numpy(),
-                    self.intrinsics[0][1, 2].cpu().numpy(),
-                ]
+                    self.intrinsics[0][0, 0].item(),
+                    self.intrinsics[0][0, 2].item(),
+                    self.intrinsics[0][1, 2].item(),
+                ],
+                dtype=np.float32,
             )
         else:
             raise NotImplementedError(f"Camera type {self.cfg.camera_type} not implemented")
+
         # We assume the same camera for all frames in a video
         pycam = pycolmap.Camera(
             model=self.cfg.camera_type,
@@ -1066,7 +1058,7 @@ class VideoRunner(VGGSfMRunner):
         )
 
         # Conduct triangulation to all the frames using LORANSAC
-        best_triangulated_points, best_inlier_num, best_inlier_mask = triangulate_tracks(
+        best_triangulated_points, _, _ = triangulate_tracks(
             extrinsics,
             tracks_normalized_refined,
             track_vis=window_pred_vis,
@@ -1099,7 +1091,7 @@ class VideoRunner(VGGSfMRunner):
     def update_dicts_by_reconstruction(self, reconstruction, start_idx, end_idx):
         # Update dicts by reconstruction
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]["extri"] = torch.tensor(image.cam_from_world.matrix())
+            self.frame_dict[image_id]["extri"] = torch.tensor(image.cam_from_world.matrix(), dtype=reconstruction.dtype)
 
         for point3D_id in sorted(self.point_dict.keys()):
             pycolmap_point3D_id = point3D_id + 1

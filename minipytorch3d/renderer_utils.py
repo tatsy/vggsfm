@@ -10,7 +10,7 @@
 import copy
 import inspect
 import warnings
-from typing import Any, List, Optional, Tuple, TypeVar, Union
+from typing import Any, List, Tuple, Union, TypeVar, Optional
 
 import numpy as np
 import torch
@@ -67,11 +67,7 @@ class TensorAccessor(nn.Module):
         if v.dim() > 1 and value.dim() > 1 and value.shape[1:] != v.shape[1:]:
             msg = "Expected value to have shape %r; got %r"
             raise ValueError(msg % (v.shape, value.shape))
-        if (
-            v.dim() == 0
-            and isinstance(self.index, slice)
-            and len(value) != len(self.index)
-        ):
+        if v.dim() == 0 and isinstance(self.index, slice) and len(value) != len(self.index):
             msg = "Expected value to have len %r; got %r"
             raise ValueError(msg % (len(self.index), len(value)))
         self.class_object.__dict__[name][self.index] = value
@@ -134,9 +130,7 @@ class TensorProperties(nn.Module):
             values = tuple(v for v in args_to_broadcast.values())
 
             if len(values) > 0:
-                broadcasted_values = convert_to_tensors_and_broadcast(
-                    *values, device=device
-                )
+                broadcasted_values = convert_to_tensors_and_broadcast(*values, device=device)
 
                 # Set broadcasted values as attributes on self.
                 for i, n in enumerate(names):
@@ -281,9 +275,7 @@ class TensorProperties(nn.Module):
         return self
 
 
-def format_tensor(
-    input, dtype: torch.dtype = torch.float32, device: Device = "cpu"
-) -> torch.Tensor:
+def format_tensor(input, dtype: torch.dtype = torch.float32, device: Device = "cpu") -> torch.Tensor:
     """
     Helper function for converting a scalar value to a tensor.
 
@@ -309,9 +301,7 @@ def format_tensor(
     return input
 
 
-def convert_to_tensors_and_broadcast(
-    *args, dtype: torch.dtype = torch.float32, device: Device = "cpu"
-):
+def convert_to_tensors_and_broadcast(*args, dtype: torch.dtype = torch.float32, device: Device = "cpu"):
     """
     Helper function to handle parsing an arbitrary number of inputs (*args)
     which all need to have the same batch dimension.
@@ -386,9 +376,7 @@ def ndc_grid_sample(
 
     batch, *spatial_size, pt_dim = grid_ndc.shape
     if batch != input.shape[0]:
-        raise ValueError(
-            "'input' and 'grid_ndc' have to have the same batch size."
-        )
+        raise ValueError("'input' and 'grid_ndc' have to have the same batch size.")
     if input.ndim != 4:
         raise ValueError("'input' has to be a 4-dimensional Tensor.")
     if pt_dim != 2:
@@ -403,16 +391,12 @@ def ndc_grid_sample(
         input, grid_flat, align_corners=align_corners, **grid_sample_kwargs
     )
 
-    sampled_input = sampled_input_flat.reshape(
-        [batch, input.shape[1], *spatial_size]
-    )
+    sampled_input = sampled_input_flat.reshape([batch, input.shape[1], *spatial_size])
 
     return sampled_input
 
 
-def ndc_to_grid_sample_coords(
-    xy_ndc: torch.Tensor, image_size_hw: Tuple[int, int]
-) -> torch.Tensor:
+def ndc_to_grid_sample_coords(xy_ndc: torch.Tensor, image_size_hw: Tuple[int, int]) -> torch.Tensor:
     """
     Convert from the PyTorch3D's NDC coordinates to
     `torch.nn.functional.grid_sampler`'s coordinates.
@@ -427,9 +411,7 @@ def ndc_to_grid_sample_coords(
             `torch.nn.functional.grid_sample` coordinates.
     """
     if len(image_size_hw) != 2 or any(s <= 0 for s in image_size_hw):
-        raise ValueError(
-            "'image_size_hw' has to be a 2-tuple of positive integers"
-        )
+        raise ValueError("'image_size_hw' has to be a 2-tuple of positive integers")
     aspect = min(image_size_hw) / max(image_size_hw)
     xy_grid_sample = -xy_ndc  # first negate the coords
     if image_size_hw[0] >= image_size_hw[1]:
@@ -439,9 +421,7 @@ def ndc_to_grid_sample_coords(
     return xy_grid_sample
 
 
-def parse_image_size(
-    image_size: Union[List[int], Tuple[int, int], int]
-) -> Tuple[int, int]:
+def parse_image_size(image_size: Union[List[int], Tuple[int, int], int]) -> Tuple[int, int]:
     """
     Args:
         image_size: A single int (for square images) or a tuple/list of two ints.
@@ -457,11 +437,7 @@ def parse_image_size(
     if len(image_size) != 2:
         raise ValueError("Image size can only be a tuple/list of (H, W)")
     if not all(i > 0 for i in image_size):
-        raise ValueError(
-            "Image sizes must be greater than 0; got %d, %d" % image_size
-        )
+        raise ValueError("Image sizes must be greater than 0; got %d, %d" % image_size)
     if not all(isinstance(i, int) for i in image_size):
-        raise ValueError(
-            "Image sizes must be integers; got %f, %f" % image_size
-        )
+        raise ValueError("Image sizes must be integers; got %f, %f" % image_size)
     return tuple(image_size)

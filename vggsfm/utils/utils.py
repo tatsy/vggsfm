@@ -18,9 +18,8 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 from scipy.spatial.transform import Rotation as sciR
 
+from vggsfm.utils.metric import closed_form_inverse, closed_form_inverse_OpenCV
 from minipytorch3d.cameras import PerspectiveCameras
-
-from .metric import closed_form_inverse, closed_form_inverse_OpenCV
 
 
 def average_camera_prediction(
@@ -137,6 +136,7 @@ def average_batch_rotation_matrices(batch_rotation_matrices):
 
     # Convert matrices to quaternions using vectorized operation
     quaternions = sciR.from_matrix(reshaped_matrices).as_quat()
+    quaternions = quaternions.astype(reshaped_matrices.dtype)
 
     # Reshape quaternions to (B, N, 4) for easier averaging
     quaternions = quaternions.reshape(B, N, 4)
@@ -144,12 +144,12 @@ def average_batch_rotation_matrices(batch_rotation_matrices):
     # Compute the mean quaternion for each set of N matrices
     mean_quaternions = np.mean(quaternions, axis=0)
 
-    # import pdb;pdb.set_trace()
     # Normalize the resulting quaternions
     mean_quaternions /= np.linalg.norm(mean_quaternions, axis=1, keepdims=True)
 
     # Convert back to rotation matrices using vectorized operation
     average_rotation_matrices = sciR.from_quat(mean_quaternions).as_matrix()
+    average_rotation_matrices = average_rotation_matrices.astype(mean_quaternions.dtype)
 
     return average_rotation_matrices
 

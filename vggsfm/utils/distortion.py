@@ -4,8 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import torch
 import numpy as np
+import torch
 
 
 def single_undistortion(params, tracks_normalized):
@@ -44,11 +44,7 @@ def iterative_undistortion(
     Returns:
         torch.Tensor: Undistorted normalized tracks tensor.
     """
-    if len(params.shape) != 2:
-        import pdb
-
-        pdb.set_trace()
-        # params = params.squeeze(1)
+    assert params.dim() == 2, "params should be a 2D tensor of shape BxN"
 
     B, N, _ = tracks_normalized.shape
     u, v = tracks_normalized[..., 0].clone(), tracks_normalized[..., 1].clone()
@@ -63,22 +59,10 @@ def iterative_undistortion(
         step_u = torch.clamp(torch.abs(u) * rel_step_size, min=eps)
         step_v = torch.clamp(torch.abs(v) * rel_step_size, min=eps)
 
-        J_00 = (
-            apply_distortion(params, u + step_u, v)[0]
-            - apply_distortion(params, u - step_u, v)[0]
-        ) / (2 * step_u)
-        J_01 = (
-            apply_distortion(params, u, v + step_v)[0]
-            - apply_distortion(params, u, v - step_v)[0]
-        ) / (2 * step_v)
-        J_10 = (
-            apply_distortion(params, u + step_u, v)[1]
-            - apply_distortion(params, u - step_u, v)[1]
-        ) / (2 * step_u)
-        J_11 = (
-            apply_distortion(params, u, v + step_v)[1]
-            - apply_distortion(params, u, v - step_v)[1]
-        ) / (2 * step_v)
+        J_00 = (apply_distortion(params, u + step_u, v)[0] - apply_distortion(params, u - step_u, v)[0]) / (2 * step_u)
+        J_01 = (apply_distortion(params, u, v + step_v)[0] - apply_distortion(params, u, v - step_v)[0]) / (2 * step_v)
+        J_10 = (apply_distortion(params, u + step_u, v)[1] - apply_distortion(params, u - step_u, v)[1]) / (2 * step_u)
+        J_11 = (apply_distortion(params, u, v + step_v)[1] - apply_distortion(params, u, v - step_v)[1]) / (2 * step_v)
 
         J = torch.stack(
             [
@@ -161,6 +145,7 @@ def apply_distortion(extra_params, u, v):
 
 if __name__ == "__main__":
     import random
+
     import pycolmap
 
     max_diff = 0
@@ -168,18 +153,14 @@ if __name__ == "__main__":
         # Define distortion parameters (assuming 1 parameter for simplicity)
         B = random.randint(1, 500)
         track_num = random.randint(100, 1000)
-        params = torch.rand(
-            (B, 1), dtype=torch.float32
-        )  # Batch size 1, 4 parameters
-        tracks_normalized = torch.rand(
-            (B, track_num, 2), dtype=torch.float32
-        )  # Batch size 1, 5 points
+        params = torch.rand((B, 1), dtype=torch.float32)  # Batch size 1, 4 parameters
+        tracks_normalized = torch.rand((B, track_num, 2), dtype=torch.float32)  # Batch size 1, 5 points
 
         # Undistort the tracks
         undistorted_tracks = iterative_undistortion(params, tracks_normalized)
 
         for b in range(B):
-            pycolmap_intri = np.array([1, 0, 0, params[b].item()])
+            pycolmap_intri = np.array([1, 0, 0, params[b].item()], dtype=np.float32)
             pycam = pycolmap.Camera(
                 model="SIMPLE_RADIAL",
                 width=1,
@@ -188,17 +169,7 @@ if __name__ == "__main__":
                 camera_id=0,
             )
 
-            undistorted_tracks_pycolmap = pycam.cam_from_img(
-                tracks_normalized[b].numpy()
-            )
-            diff = (
-                (undistorted_tracks[b] - undistorted_tracks_pycolmap)
-                .abs()
-                .median()
-            )
+            undistorted_tracks_pycolmap = pycam.cam_from_img(tracks_normalized[b].numpy())
+            diff = (undistorted_tracks[b] - undistorted_tracks_pycolmap).abs().median()
             max_diff = max(max_diff, diff)
             print(f"diff: {diff}, max_diff: {max_diff}")
-
-    import pdb
-
-    pdb.set_trace()

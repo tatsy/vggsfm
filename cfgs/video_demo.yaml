@@ -13,9 +13,9 @@ max_query_pts: 2048
 max_points_num: 32768
 max_tri_points_num: 102400
 
-init_window_size: 32
-window_size: 16
-joint_BA_interval: 5
+init_window_size: 48
+window_size: 24
+joint_BA_interval: 6
 grid_based_sample: False
 
 ##########################
@@ -31,7 +31,7 @@ extract_color: True
 filter_invalid_frame: True
 
 comple_nonvis: True
-query_frame_num: 5
+query_frame_num: 3
 robust_refine: 2
 BA_iters: 1
 
@@ -54,7 +54,7 @@ SCENE_DIR: examples/kitchen
 resume_ckpt: ckpt/vggsfm_v2_0_0.bin
 auto_download_ckpt: True
 
-query_method: "aliked"
+query_method: aliked
 
 use_poselib: True
 
