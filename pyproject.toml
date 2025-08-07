@@ -29,6 +29,7 @@ dependencies = [
     "joblib (>=1.5.1,<2.0.0)",
     "coloredlogs (>=15.0.1,<16.0.0)",
     "lightglue",
+    "rich (>=14.0.0,<15.0.0)",
 ]
 
 [tool.poetry]

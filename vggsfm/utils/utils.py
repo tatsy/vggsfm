@@ -9,13 +9,15 @@ import os
 import math
 import random
 import struct
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
 import matplotlib
 import torch.nn.functional as F
-from tqdm.auto import tqdm
+from rich.progress import track
+from sklearn.linear_model import RANSACRegressor, LinearRegression
 from scipy.spatial.transform import Rotation as sciR
 
 from vggsfm.utils.metric import closed_form_inverse, closed_form_inverse_OpenCV
@@ -393,7 +395,8 @@ def filter_invisible_reprojections(uvs_int, depths):
     """
     Filters out invisible 3D points when projecting them to 2D.
 
-    When reprojecting 3D points to 2D, multiple 3D points may map to the same 2D pixel due to occlusion or close proximity.
+    When reprojecting 3D points to 2D, multiple 3D points may map to the same 2D pixel
+    due to occlusion or close proximity.
     This function filters out the reprojections of invisible 3D points based on their depths.
 
     Parameters:
@@ -545,7 +548,7 @@ def save_video_with_reprojections(output_path, img_with_circles_list, video_size
     """
     print("Saving video with reprojections")
 
-    video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, video_size)
+    video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter.fourcc(*"mp4v"), fps, video_size)
 
     for img_with_circles in img_with_circles_list:
         video_writer.write(img_with_circles)
@@ -586,7 +589,7 @@ def extract_dense_depth_maps(depth_model, image_paths, original_images=None):
     print("Extracting dense depth maps")
     disp_dict = {}
 
-    for idx in tqdm(range(len(image_paths)), desc="Predicting monocular depth maps"):
+    for idx in track(range(len(image_paths)), description="Predicting monocular depth maps"):
         img_fname = image_paths[idx]
         basename = os.path.basename(img_fname)
 
@@ -612,9 +615,6 @@ def align_dense_depth_maps(
     original_images,
     visual_dense_point_cloud=False,
 ):
-    # For dense depth estimation
-    from sklearn.linear_model import RANSACRegressor, LinearRegression
-
     # Define disparity and depth limits
     disparity_max = 10000
     disparity_min = 0.0001
@@ -622,10 +622,10 @@ def align_dense_depth_maps(
     depth_min = 1 / disparity_max
 
     depth_dict = {}
-    unproj_dense_points3D = {}
+    unproj_dense_points3D: dict[str, Any] | None = {}
     fname_to_id = {reconstruction.images[imgid].name: imgid for imgid in reconstruction.images}
 
-    for img_basename in tqdm(sparse_depth, desc="Load monocular depth and Align"):
+    for img_basename in track(sparse_depth, description="Load monocular depth and Align"):
         sparse_uvd = np.array(sparse_depth[img_basename])
 
         if len(sparse_uvd) <= 0:
@@ -734,7 +734,8 @@ def generate_grid_samples(rect, N=None, pixel_interval=None):
     Generate a tensor with shape (N, 2) representing grid-sampled points inside a rectangle.
 
     Parameters:
-    rect (torch.Tensor): Tensor of shape (1, 4) indicating the rectangle [topleftx, toplefty, bottomrightx, bottomrighty].
+    rect (torch.Tensor): Tensor of shape (1, 4) indicating
+    the rectangle [topleftx, toplefty, bottomrightx, bottomrighty].
     N (int): Number of points to sample within the rectangle.
 
     Returns:

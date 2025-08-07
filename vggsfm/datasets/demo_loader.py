@@ -19,6 +19,7 @@ from PIL import Image, ImageFile
 from joblib import Parallel, delayed
 from tqdm.auto import tqdm
 from torchvision import transforms
+from rich.progress import track
 from torch.utils.data import Dataset
 
 from minipytorch3d.cameras import PerspectiveCameras
@@ -275,7 +276,7 @@ class DemoLoader(Dataset):
 
         n_jobs = min(4, mp.cpu_count())
         result = Parallel(n_jobs=n_jobs)(
-            delayed(self._load_image_with_anno)(anno) for anno in tqdm(annos, desc="Preparing images")
+            delayed(self._load_image_with_anno)(anno) for anno in track(annos, description="Preparing images")
         )
 
         for (
@@ -294,47 +295,6 @@ class DemoLoader(Dataset):
             if self.load_gt:
                 new_fls.append(new_focal_length)
                 new_pps.append(new_principal_point)
-
-        # for anno in tqdm(annos, desc="Preparing batches"):
-        #     image_path = anno["img_path"]
-        #     image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        #     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        #     image_paths.append(image_path)
-        #     if self.have_mask:
-        #         mask_path = image_path.replace(f"/{self.prefix}", "/masks")
-        #         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        #     else:
-        #         mask = None
-
-        #     # Transform the image and mask, and get crop parameters and bounding box
-        #     image_transformed, mask_transformed, crop_paras, bbox = pad_and_resize_image(
-        #         image,
-        #         self.crop_longest,
-        #         self.img_size,
-        #         mask=mask,
-        #         transform=self.transform,
-        #     )
-        #     images_transformed.append(image_transformed)
-        #     if mask_transformed is not None:
-        #         masks_transformed.append(mask_transformed)
-        #     crop_parameters.append(crop_paras)
-
-        #     if self.load_gt:
-        #         bbox_xywh = torch.tensor(bbox_xyxy_to_xywh(bbox), dtype=torch.float32)
-        #         (focal_length_cropped, principal_point_cropped) = adjust_camera_to_bbox_crop_(
-        #             anno["focal_length"],
-        #             anno["principal_point"],
-        #             torch.tensor(image.size, dtype=torch.float32),
-        #             bbox_xywh,
-        #         )
-        #         (new_focal_length, new_principal_point) = adjust_camera_to_image_scale_(
-        #             focal_length_cropped,
-        #             principal_point_cropped,
-        #             torch.tensor(image.size, dtype=torch.float32),
-        #             torch.tensor([self.img_size, self.img_size], dtype=torch.long),
-        #         )
-        #         new_fls.append(new_focal_length)
-        #         new_pps.append(new_principal_point)
 
         images = torch.stack(images_transformed)
         masks = torch.stack(masks_transformed) if self.have_mask else None
