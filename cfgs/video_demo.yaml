@@ -9,7 +9,7 @@ model_name: vggsfm_v2_0_0
 query_by_midpoint: True
 shared_camera: True
 camera_type: SIMPLE_RADIAL # optional: ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]
-max_query_pts: 2048
+max_query_pts: 1024
 max_points_num: 32768
 max_tri_points_num: 102400
 

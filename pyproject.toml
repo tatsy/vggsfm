@@ -21,8 +21,7 @@ dependencies = [
     "gradio (>=5.34.2,<6.0.0)",
     "trimesh (>=4.6.12,<5.0.0)",
     "huggingface-hub (>=0.33.0,<0.34.0)",
-    "pycolmap (>=3.11.1,<4.0.0)",
-    "pyceres (>=2.4,<3.0)",
+    "pycolmap (>=3.11.0,<3.12.0)",
     "poselib (>=2.0.4,<3.0.0)",
     "fvcore (>=0.1.5.post20221221,<0.2.0)",
     "iopath (>=0.1.10,<0.2.0)",
@@ -30,6 +29,7 @@ dependencies = [
     "coloredlogs (>=15.0.1,<16.0.0)",
     "lightglue",
     "rich (>=14.0.0,<15.0.0)",
+    "pyceres (>=2.4,<3.0)",
 ]
 
 [tool.poetry]
