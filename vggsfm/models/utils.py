@@ -61,7 +61,7 @@ def get_EFP(pred_cameras, image_size, B, S, default_focal=False):
 
 def pose_encoding_to_camera(
     pose_encoding,
-    pose_encoding_type="absT_quaR_logFL",
+    pose_encoding_type='absT_quaR_logFL',
     log_focal_length_bias=1.8,
     min_focal_length=0.1,
     max_focal_length=30,
@@ -76,7 +76,7 @@ def pose_encoding_to_camera(
     """
     pose_encoding_reshaped = pose_encoding.reshape(-1, pose_encoding.shape[-1])  # Reshape to BNxC
 
-    if pose_encoding_type == "absT_quaR_logFL":
+    if pose_encoding_type == 'absT_quaR_logFL':
         # 3 for absT, 4 for quaR, 2 for absFL
         abs_T = pose_encoding_reshaped[:, :3]
         quaternion_R = pose_encoding_reshaped[:, 3:7]
@@ -88,7 +88,7 @@ def pose_encoding_to_camera(
         focal_length = (log_focal_length + log_focal_length_bias).exp()
         # clamp to avoid weird fl values
         focal_length = torch.clamp(focal_length, min=min_focal_length, max=max_focal_length)
-    elif pose_encoding_type == "absT_quaR_OneFL":
+    elif pose_encoding_type == 'absT_quaR_OneFL':
         # 3 for absT, 4 for quaR, 1 for absFL
         # [absolute translation, quaternion rotation, normalized focal length]
         abs_T = pose_encoding_reshaped[:, :3]
@@ -97,7 +97,7 @@ def pose_encoding_to_camera(
         focal_length = pose_encoding_reshaped[:, 7:8]
         focal_length = torch.clamp(focal_length, min=min_focal_length, max=max_focal_length)
     else:
-        raise ValueError(f"Unknown pose encoding {pose_encoding_type}")
+        raise ValueError(f'Unknown pose encoding {pose_encoding_type}')
 
     if to_OpenCV:
         ### From Pytorch3D coordinate to OpenCV coordinate:
@@ -126,7 +126,7 @@ def pose_encoding_to_camera(
         abs_T = extrinsics_4x4[:, :3, 3].clone()
 
     if return_dict:
-        return {"focal_length": focal_length, "R": R, "T": abs_T}
+        return {'focal_length': focal_length, 'R': R, 'T': abs_T}
 
     pred_cameras = PerspectiveCameras(focal_length=focal_length, R=R, T=abs_T, device=R.device)
     return pred_cameras
@@ -134,7 +134,7 @@ def pose_encoding_to_camera(
 
 def camera_to_pose_encoding(
     camera,
-    pose_encoding_type="absT_quaR_logFL",
+    pose_encoding_type='absT_quaR_logFL',
     log_focal_length_bias=1.8,
     min_focal_length=0.1,
     max_focal_length=30,
@@ -142,7 +142,7 @@ def camera_to_pose_encoding(
     """
     Inverse to pose_encoding_to_camera
     """
-    if pose_encoding_type == "absT_quaR_logFL":
+    if pose_encoding_type == 'absT_quaR_logFL':
         # Convert rotation matrix to quaternion
         quaternion_R = matrix_to_quaternion(camera.R)
 
@@ -161,13 +161,13 @@ def camera_to_pose_encoding(
         # Concatenate to form pose_encoding
         pose_encoding = torch.cat([camera.T, quaternion_R, log_focal_length], dim=-1)
 
-    elif pose_encoding_type == "absT_quaR_OneFL":
+    elif pose_encoding_type == 'absT_quaR_OneFL':
         # [absolute translation, quaternion rotation, normalized focal length]
         quaternion_R = matrix_to_quaternion(camera.R)
         focal_length = (torch.clamp(camera.focal_length, min=min_focal_length, max=max_focal_length))[..., 0:1]
         pose_encoding = torch.cat([camera.T, quaternion_R, focal_length], dim=-1)
     else:
-        raise ValueError(f"Unknown pose encoding {pose_encoding_type}")
+        raise ValueError(f'Unknown pose encoding {pose_encoding_type}')
 
     return pose_encoding
 
@@ -199,9 +199,9 @@ def get_2d_sincos_pos_embed(embed_dim: int, grid_size: Union[int, Tuple[int, int
         grid_size_h, grid_size_w = grid_size
     else:
         grid_size_h = grid_size_w = grid_size
-    grid_h = torch.arange(grid_size_h, dtype=torch.float)
-    grid_w = torch.arange(grid_size_w, dtype=torch.float)
-    grid = torch.meshgrid(grid_w, grid_h, indexing="xy")
+    grid_h = torch.arange(grid_size_h, dtype=torch.float32)
+    grid_w = torch.arange(grid_size_w, dtype=torch.float32)
+    grid = torch.meshgrid(grid_w, grid_h, indexing='xy')
     grid = torch.stack(grid, dim=0)
     grid = grid.reshape([2, 1, grid_size_h, grid_size_w])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
@@ -251,7 +251,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim: int, pos: torch.Tensor) -> torc
     omega = 1.0 / 10000**omega  # (D/2,)
 
     pos = pos.reshape(-1)  # (M,)
-    out = torch.einsum("m,d->md", pos, omega)  # (M, D/2), outer product
+    out = torch.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
 
     emb_sin = torch.sin(out)  # (M, D/2)
     emb_cos = torch.cos(out)  # (M, D/2)
@@ -294,7 +294,7 @@ def get_2d_embedding(xy: torch.Tensor, C: int, cat_coords: bool = True) -> torch
     return pe
 
 
-def bilinear_sampler(input, coords, align_corners=True, padding_mode="border"):
+def bilinear_sampler(input, coords, align_corners=True, padding_mode='border'):
     r"""Sample a tensor using bilinear interpolation
 
     `bilinear_sampler(input, coords)` samples a tensor :attr:`input` at

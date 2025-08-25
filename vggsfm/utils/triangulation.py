@@ -10,6 +10,7 @@ import torch
 import pycolmap
 import torch.nn as nn
 import torch.nn.functional as F
+from pycolmap import CameraModelId
 from torch.amp import autocast
 
 from .tensor_to_pycolmap import batch_matrix_to_pycolmap, pycolmap_to_batch_matrix
@@ -113,7 +114,7 @@ def init_BA(
     image_size,
     shared_camera=False,
     init_max_reproj_error=0.5,
-    camera_type="SIMPLE_PINHOLE",
+    camera_type=CameraModelId.SIMPLE_PINHOLE,
 ):
     """
     This function first optimizes the init point cloud
@@ -172,15 +173,13 @@ def init_BA(
         camera_type=camera_type,
     )
 
-    # Prepare BA options
-    ba_options = prepare_ba_options()
-
     # Conduct BA
+    ba_options = prepare_ba_options()
     pycolmap.bundle_adjustment(reconstruction, ba_options)
     # reconstruction = filter_reconstruction(reconstruction)
 
     # Get the optimized 3D points, extrinsics, and intrinsics
-    (points3D_opt, extrinsics_opt, intrinsics_opt, extra_params_opt) = pycolmap_to_batch_matrix(
+    points3D_opt, extrinsics_opt, intrinsics_opt, extra_params_opt = pycolmap_to_batch_matrix(
         reconstruction,
         device=toBA_extrinsics.device,
         camera_type=camera_type,
@@ -232,7 +231,7 @@ def refine_pose(
     image_size,
     shared_camera=False,
     max_reproj_error=12,
-    camera_type="SIMPLE_PINHOLE",
+    camera_type=CameraModelId.SIMPLE_PINHOLE,
     force_estimate=False,
 ):
     # extrinsics: Sx3x4
@@ -270,6 +269,7 @@ def refine_pose(
     )
 
     reproj_error = (projected_points2D - tracks2D).norm(dim=-1) ** 2  # sqaure
+
     # ensure all the points stay in front of the cameras
     reproj_error[projected_points_cam[:, -1] <= 0] = 1e9
 
@@ -304,32 +304,34 @@ def refine_pose(
 
     for ridx in range(S):
         if pycamera is None or (not shared_camera):
-            if camera_type == "SIMPLE_RADIAL":
-                pycolmap_intri = np.array(
+            if camera_type == CameraModelId.SIMPLE_RADIAL:
+                params = np.array(
                     [
-                        intrinsics[ridx][0, 0].cpu(),
-                        intrinsics[ridx][0, 2].cpu(),
-                        intrinsics[ridx][1, 2].cpu(),
-                        extra_params[ridx][0].cpu(),
-                    ]
+                        intrinsics[ridx][0, 0].item(),
+                        intrinsics[ridx][0, 2].item(),
+                        intrinsics[ridx][1, 2].item(),
+                        extra_params[ridx][0].item(),
+                    ],
+                    dtype=np.float64,
                 )
-            elif camera_type == "SIMPLE_PINHOLE":
-                pycolmap_intri = np.array(
+            elif camera_type == CameraModelId.SIMPLE_PINHOLE:
+                params = np.array(
                     [
-                        intrinsics[ridx][0, 0].cpu(),
-                        intrinsics[ridx][0, 2].cpu(),
-                        intrinsics[ridx][1, 2].cpu(),
-                    ]
+                        intrinsics[ridx][0, 0].item(),
+                        intrinsics[ridx][0, 2].item(),
+                        intrinsics[ridx][1, 2].item(),
+                    ],
+                    dtype=np.float64,
                 )
             else:
-                raise ValueError(f"Camera type {camera_type} is not supported yet")
+                raise ValueError(f'Camera type {camera_type} is not supported yet')
 
             pycamera = pycolmap.Camera(
+                camera_id=ridx,
                 model=camera_type,
                 width=image_size[0],
                 height=image_size[1],
-                params=pycolmap_intri,
-                camera_id=ridx,
+                params=params,
             )
 
         if ridx > 0 and shared_camera:
@@ -337,8 +339,8 @@ def refine_pose(
             refoptions.refine_extra_params = False
 
         cam_from_world = pycolmap.Rigid3d(
-            pycolmap.Rotation3d(extrinsics[ridx][:3, :3].cpu()),
-            extrinsics[ridx][:3, 3].cpu(),
+            pycolmap.Rotation3d(extrinsics[ridx][:3, :3].cpu().numpy()),
+            extrinsics[ridx][:3, 3].cpu().numpy(),
         )  # Rot and Trans
         points2D = tracks2D[ridx]
         inlier_mask = inlier_absrefine[ridx]
@@ -354,7 +356,9 @@ def refine_pose(
                 pycamera,
                 refoptions,
             )
-            cam_from_world = answer["cam_from_world"]
+
+            assert isinstance(answer, dict) and 'cam_from_world' in answer
+            cam_from_world = answer['cam_from_world']
 
             intri_mat = pycamera.calibration_matrix()
             focal = intri_mat[0, 0]
@@ -363,13 +367,13 @@ def refine_pose(
                 estimate_abs_pose = True
         else:
             estimate_abs_pose = True
-            print(f"Frame {ridx} only has {inlier_mask.sum()} geo_vis inliers")
+            print(f'Frame {ridx} only has {inlier_mask.sum()} geo_vis inliers')
 
         if estimate_abs_pose and force_estimate:
             inlier_mask = inlier_nongeo[ridx]
 
             if inlier_mask.sum() > 50:
-                print(f"Estimating absolute poses by visible matches for frame {ridx}")
+                print(f'Estimating absolute poses by visible matches for frame {ridx}')
                 estanswer = pycolmap.estimate_and_refine_absolute_pose(
                     points2D[inlier_mask],
                     points3D[inlier_mask],
@@ -382,13 +386,13 @@ def refine_pose(
                         points2D, points3D, pycamera, estoptions, refoptions
                     )
             else:
-                print(f"Warning! Estimating absolute poses by non visible matches for frame {ridx}")
+                print(f'Warning! Estimating absolute poses by non visible matches for frame {ridx}')
                 estanswer = pycolmap.estimate_and_refine_absolute_pose(
                     points2D, points3D, pycamera, estoptions, refoptions
                 )
 
             if estanswer is not None:
-                cam_from_world = estanswer["cam_from_world"]
+                cam_from_world = estanswer['cam_from_world']
 
         extri_mat = cam_from_world.matrix()
         intri_mat = pycamera.calibration_matrix()
@@ -399,18 +403,22 @@ def refine_pose(
             refined_extra_params.append(pycamera.params[3])
 
     # get the optimized cameras
-    refined_extrinsics = torch.from_numpy(np.stack(refined_extrinsics)).to(tracks.device)
-    refined_intrinsics = torch.from_numpy(np.stack(refined_intrinsics)).to(tracks.device)
+    refined_extrinsics = np.stack(refined_extrinsics)
+    refined_intrinsics = np.stack(refined_intrinsics)
+    refined_extrinsics = torch.tensor(refined_extrinsics, device=tracks.device)
+    refined_intrinsics = torch.tensor(refined_intrinsics, device=tracks.device)
 
     if extra_params is not None:
-        refined_extra_params = torch.from_numpy(np.stack(refined_extra_params)).to(tracks.device)
+        refined_extra_params = np.stack(refined_extra_params)
+        refined_extra_params = torch.tensor(refined_extra_params, device=tracks.device)
         if len(refined_extra_params.shape) == 1:
             refined_extra_params = refined_extra_params[:, None]
 
     valid_frame_mask = get_valid_frame_mask(refined_intrinsics, refined_extrinsics, refined_extra_params, scale)
 
-    if (~valid_frame_mask).sum() > 0:
-        print("some frames are invalid after BA refinement")
+    num_invalid_frames = (~valid_frame_mask).sum()
+    if num_invalid_frames > 0:
+        print(f'{num_invalid_frames}/{len(valid_frame_mask)} frames are invalid after BA refinement')
         refined_extrinsics[~valid_frame_mask] = extrinsics[~valid_frame_mask].to(refined_extrinsics.dtype)
         refined_intrinsics[~valid_frame_mask] = intrinsics[~valid_frame_mask].to(refined_extrinsics.dtype)
         if extra_params is not None:
@@ -436,7 +444,7 @@ def init_refine_pose(
     init_idx,
     max_reproj_error=12,
     shared_camera=False,
-    camera_type="SIMPLE_PINHOLE",
+    camera_type=CameraModelId.SIMPLE_PINHOLE,
 ):
     """
     Refine the extrinsics and intrinsics by points3D and tracks,
@@ -474,10 +482,10 @@ def init_refine_pose(
     # S x P' x 2
     tracks2D = tracks[:, valid_track_mask_init].detach().cpu().numpy()
 
-    refoptions = pycolmap.AbsolutePoseRefinementOptions()
-    refoptions.refine_focal_length = True
-    refoptions.refine_extra_params = True
-    refoptions.print_summary = False
+    ref_options = pycolmap.AbsolutePoseRefinementOptions()
+    ref_options.refine_focal_length = True
+    ref_options.refine_extra_params = True
+    ref_options.print_summary = False
 
     refined_extrinsics = []
     refined_intrinsics = []
@@ -486,44 +494,43 @@ def init_refine_pose(
     pycamera = None
     for ridx in range(S):
         if (pycamera is None) or (not shared_camera):
-            if camera_type == "SIMPLE_RADIAL":
-                pycolmap_intri = np.array(
+            if camera_type == CameraModelId.SIMPLE_RADIAL:
+                params = np.array(
                     [
                         intrinsics[ridx][0, 0].item(),
                         intrinsics[ridx][0, 2].item(),
                         intrinsics[ridx][1, 2].item(),
                         extra_params[ridx][0].item(),
                     ],
-                    dtype=np.float32,
+                    dtype=np.float64,
                 )
-            elif camera_type == "SIMPLE_PINHOLE":
-                pycolmap_intri = np.array(
+            elif camera_type == CameraModelId.SIMPLE_PINHOLE:
+                params = np.array(
                     [
                         intrinsics[ridx][0, 0].item(),
                         intrinsics[ridx][0, 2].item(),
                         intrinsics[ridx][1, 2].item(),
                     ],
-                    dtype=np.float32,
+                    dtype=np.float64,
                 )
             else:
-                raise ValueError(f"Camera type {camera_type} is not supported yet")
+                raise ValueError(f'Camera type {camera_type} is not supported yet')
 
             pycamera = pycolmap.Camera(
+                camera_id=ridx,
                 model=camera_type,
                 width=image_size[0],
                 height=image_size[1],
-                params=pycolmap_intri,
-                camera_id=ridx,
+                params=params,
             )
 
         if ridx > 0 and shared_camera:
-            refoptions.refine_focal_length = False
-            refoptions.refine_extra_params = False
+            ref_options.refine_focal_length = False
+            ref_options.refine_extra_params = False
 
-        cam_from_world = pycolmap.Rigid3d(
-            pycolmap.Rotation3d(extrinsics[ridx][:3, :3].detach().cpu()),
-            extrinsics[ridx][:3, 3].detach().cpu(),
-        )  # Rot and Trans
+        P = extrinsics[ridx].detach().cpu().numpy()
+        P = P.astype(np.float64)
+        cam_from_world = pycolmap.Rigid3d(pycolmap.Rotation3d(P[:3, :3]), P[:3, 3])  # Rot and Trans
         points2D = tracks2D[ridx]
         inlier_mask = inlier_absrefine[ridx]
 
@@ -538,11 +545,11 @@ def init_refine_pose(
                     points3D,
                     inlier_mask,
                     pycamera,
-                    refoptions,
+                    ref_options,
                 )
-                cam_from_world = answer["cam_from_world"]
+                cam_from_world = answer['cam_from_world']
             else:
-                print("This frame only has inliers:", inlier_mask.sum())
+                print('This frame only has inliers:', inlier_mask.sum())
 
         extri_mat = cam_from_world.matrix()
         intri_mat = pycamera.calibration_matrix()
@@ -564,8 +571,9 @@ def init_refine_pose(
 
     valid_frame_mask = get_valid_frame_mask(refined_intrinsics, refined_extrinsics, refined_extra_params, scale)
 
-    if (~valid_frame_mask).sum() > 0:
-        print("some frames are invalid after BA refinement")
+    num_invalid_frames = (~valid_frame_mask).sum()
+    if num_invalid_frames > 0:
+        print(f'{num_invalid_frames}/{len(valid_frame_mask)} frames are invalid after BA refinement')
         refined_extrinsics[~valid_frame_mask] = extrinsics[~valid_frame_mask].to(refined_extrinsics.dtype)
         refined_intrinsics[~valid_frame_mask] = intrinsics[~valid_frame_mask].to(refined_extrinsics.dtype)
         if extra_params is not None:
@@ -575,7 +583,7 @@ def init_refine_pose(
 
 
 def triangulate_multi_view_point_from_tracks(cams_from_world, tracks, mask=None):
-    with autocast(device_type="cuda", dtype=torch.float32):
+    with autocast(device_type='cuda', dtype=torch.float32):
         B, S, _, _ = cams_from_world.shape
         _, _, N, _ = tracks.shape  # B S N 2
         tracks = tracks.permute(0, 2, 1, 3)
@@ -634,7 +642,7 @@ def triangulate_tracks(
 
     all_tri_points_num = extrinsics.shape[0] * tracks_normalized.shape[1]
     if all_tri_points_num > max_tri_points_num:
-        print("Triangulate tracks in chunks to fit in memory")
+        print('Triangulate tracks in chunks to fit in memory')
 
         num_splits = (all_tri_points_num + max_tri_points_num - 1) // max_tri_points_num
 
@@ -700,8 +708,9 @@ def triangulate_tracks_single_chunk(
     (3) do re-triangulation using the inliers
     (4) check the ones with most inliers
     """
-    max_rad_error = max_angular_error * (torch.pi / 180)
-    with autocast(device_type="cuda", dtype=torch.float32):
+    max_rad_error = max_angular_error * (np.pi / 180.0)
+
+    with autocast(device_type='cuda', dtype=torch.float32):
         tracks_normalized = tracks_normalized.transpose(0, 1)
         B, S, _ = tracks_normalized.shape
         extrinsics_expand = extrinsics[None].expand(B, -1, -1, -1)
@@ -716,6 +725,7 @@ def triangulate_tracks_single_chunk(
             max_ransac_iters = len(ransac_idx)
         else:
             ransac_idx = ransac_idx[torch.randperm(len(ransac_idx))[:max_ransac_iters]]
+
         lo_num = lo_num if max_ransac_iters >= lo_num else max_ransac_iters
 
         # Prepare the input
@@ -898,7 +908,7 @@ def global_BA(
     extra_params,
     image_size,
     shared_camera=False,
-    camera_type="SIMPLE_PINHOLE",
+    camera_type=CameraModelId.SIMPLE_PINHOLE,
 ):
     ba_options = prepare_ba_options()
 
@@ -928,17 +938,16 @@ def global_BA(
 
     points3D_opt, extrinsics, intrinsics, extra_params = pycolmap_to_batch_matrix(
         reconstruction,
-        dtype=extrinsics_tmp.dtype,
         device=BA_points.device,
         camera_type=camera_type,
     )
 
     if (intrinsics[:, 0, 0] < 0).any():
         invalid_mask = intrinsics[:, 0, 0] < 0
-        extrinsics[invalid_mask] = extrinsics_tmp[invalid_mask]
-        intrinsics[invalid_mask] = intrinsics_tmp[invalid_mask]
+        extrinsics[invalid_mask] = extrinsics_tmp[invalid_mask].type_as(extrinsics)
+        intrinsics[invalid_mask] = intrinsics_tmp[invalid_mask].type_as(intrinsics)
         if extra_params is not None:
-            extra_params[invalid_mask] = extra_params_tmp[invalid_mask]
+            extra_params[invalid_mask] = extra_params_tmp[invalid_mask].type_as(extra_params)
 
     return points3D_opt, extrinsics, intrinsics, extra_params, reconstruction
 
@@ -957,7 +966,7 @@ def iterative_global_BA(
     max_reproj_error=1,
     ba_options=None,
     lastBA=False,
-    camera_type="SIMPLE_PINHOLE",
+    camera_type=CameraModelId.SIMPLE_PINHOLE,
     extra_params=None,  # Add extra_params to the function signature
 ):
     # normalize points from pixel
@@ -972,7 +981,7 @@ def iterative_global_BA(
         max_ransac_iters=128,
     )
 
-    best_triangulated_points[valid_tracks] = points3D_opt
+    best_triangulated_points[valid_tracks] = points3D_opt.type_as(best_triangulated_points)
 
     # well do we need this? best_inlier_mask may be enough already
     _, filtered_inlier_mask = filter_all_points3D(
@@ -1013,7 +1022,9 @@ def iterative_global_BA(
     extra_params_tmp = extra_params.clone() if extra_params is not None else None  # Clone extra_params if not None
 
     points3D_opt, extrinsics, intrinsics, extra_params = pycolmap_to_batch_matrix(
-        reconstruction, device=pred_tracks.device, camera_type=camera_type
+        reconstruction,
+        device=extrinsics.device,
+        camera_type=camera_type,
     )
 
     if (intrinsics[:, 0, 0] < 0).any():

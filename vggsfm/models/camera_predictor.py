@@ -34,7 +34,7 @@ class CameraPredictor(nn.Module):
         down_size=336,
         att_depth=8,
         trunk_depth=4,
-        pose_encoding_type="absT_quaR_OneFL",
+        pose_encoding_type='absT_quaR_OneFL',
         cfg=None,
     ):
         super(CameraPredictor, self).__init__()
@@ -44,9 +44,9 @@ class CameraPredictor(nn.Module):
         self.down_size = down_size
         self.pose_encoding_type = pose_encoding_type
 
-        if self.pose_encoding_type == "absT_quaR_OneFL":
+        if self.pose_encoding_type == 'absT_quaR_OneFL':
             self.target_dim = 8
-        if self.pose_encoding_type == "absT_quaR_logFL":
+        if self.pose_encoding_type == 'absT_quaR_logFL':
             self.target_dim = 9
 
         self.backbone = self.get_backbone(self.cfg.backbone)
@@ -108,8 +108,8 @@ class CameraPredictor(nn.Module):
         nn.init.normal_(self.pose_token, std=1e-6)
 
         for name, value in (
-            ("_resnet_mean", _RESNET_MEAN),
-            ("_resnet_std", _RESNET_STD),
+            ('_resnet_mean', _RESNET_MEAN),
+            ('_resnet_std', _RESNET_STD),
         ):
             self.register_buffer(
                 name,
@@ -185,9 +185,9 @@ class CameraPredictor(nn.Module):
             to_OpenCV=True,
         )
         pose_predictions = {
-            "pred_pose_enc": pred_pose_enc,
-            "pred_cameras": pred_cameras,
-            "rgb_feat_init": rgb_feat_init,
+            'pred_pose_enc': pred_pose_enc,
+            'pred_cameras': pred_cameras,
+            'rgb_feat_init': rgb_feat_init,
         }
 
         return pose_predictions
@@ -196,13 +196,13 @@ class CameraPredictor(nn.Module):
         """
         Load the backbone model.
         """
-        print(f"Loading backbone: {backbone}")
+        print(f'Loading backbone: {backbone}')
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            if backbone == "dinov2s":
-                return torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
-            elif backbone == "dinov2b":
-                return torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
+            warnings.filterwarnings('ignore', category=UserWarning)
+            if backbone == 'dinov2s':
+                return torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
+            elif backbone == 'dinov2b':
+                return torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14_reg')
             else:
                 raise NotImplementedError(f"Backbone '{backbone}' not implemented")
 
@@ -213,17 +213,17 @@ class CameraPredictor(nn.Module):
         # Get the 2D image features
         if reshaped_image.shape[-1] != self.down_size:
             new_size = (self.down_size, self.down_size)
-            reshaped_image = F.interpolate(reshaped_image, new_size, mode="bilinear", align_corners=True)
+            reshaped_image = F.interpolate(reshaped_image, new_size, mode='bilinear', align_corners=True)
 
         with torch.no_grad():
             reshaped_image = self._resnet_normalize_image(reshaped_image)
             rgb_feat = self.backbone(reshaped_image, is_training=True)
-            rgb_feat = rgb_feat["x_norm_patchtokens"]
+            rgb_feat = rgb_feat['x_norm_patchtokens']
 
         rgb_feat = self.input_transform(rgb_feat)
         rgb_feat = self.norm(rgb_feat)
 
-        rgb_feat = rearrange(rgb_feat, "(b s) p c -> b s p c", b=batch_size)
+        rgb_feat = rearrange(rgb_feat, '(b s) p c -> b s p c', b=batch_size)
         B, S, P, C = rgb_feat.shape
         patch_num = int(np.sqrt(P))
 
@@ -241,18 +241,18 @@ class CameraPredictor(nn.Module):
 
         for idx in range(self.att_depth):
             # self attention
-            rgb_feat = rearrange(rgb_feat, "b s p c -> (b s) p c", b=B, s=S)
+            rgb_feat = rearrange(rgb_feat, 'b s p c -> (b s) p c', b=B, s=S)
             rgb_feat = self.self_att[idx](rgb_feat)
-            rgb_feat = rearrange(rgb_feat, "(b s) p c -> b s p c", b=B, s=S)
+            rgb_feat = rearrange(rgb_feat, '(b s) p c -> b s p c', b=B, s=S)
 
             feat_0 = rgb_feat[:, 0]
             feat_others = rgb_feat[:, 1:]
 
             # cross attention
-            feat_others = rearrange(feat_others, "b m p c -> b (m p) c", m=S - 1, p=P)
+            feat_others = rearrange(feat_others, 'b m p c -> b (m p) c', m=S - 1, p=P)
             feat_others = self.cross_att[idx](feat_others, feat_0)
 
-            feat_others = rearrange(feat_others, "b (m p) c -> b m p c", m=S - 1, p=P)
+            feat_others = rearrange(feat_others, 'b (m p) c -> b m p c', m=S - 1, p=P)
             rgb_feat = torch.cat([rgb_feat[:, 0:1], feat_others], dim=1)
 
         rgb_feat = rgb_feat[:, :, 0]

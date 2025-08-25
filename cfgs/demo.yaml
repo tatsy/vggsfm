@@ -32,7 +32,8 @@ max_reproj_error: 4.0
 init_max_reproj_error: 4.0
 max_query_pts: 2048
 max_points_num: 32768
-max_tri_points_num: 102400
+max_tri_points_num: 819200
+
 dense_depth: False
 avg_pose: True
 shared_camera: False
@@ -42,7 +43,7 @@ SCENE_DIR: examples/kitchen
 resume_ckpt: ckpt/vggsfm_v2_0_0.bin
 auto_download_ckpt: True
 
-query_method: "aliked"
+query_method: aliked
 
 use_poselib: True
 

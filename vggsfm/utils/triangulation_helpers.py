@@ -10,11 +10,8 @@ from itertools import combinations
 
 import numpy as np
 import torch
-import pyceres
 import pycolmap
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.amp import autocast
 
 from vggsfm.utils.distortion import apply_distortion, single_undistortion, iterative_undistortion
 
@@ -30,30 +27,30 @@ def triangulate_multi_view_point_batched(
     # points: BxNx2
 
     B, N, _ = points.shape
-    assert (
-        cams_from_world.shape[0] == B and cams_from_world.shape[1] == N
-    ), "The number of cameras and points must be equal for each batch."
+    assert cams_from_world.shape[0] == B and cams_from_world.shape[1] == N, (
+        'The number of cameras and points must be equal for each batch.'
+    )
 
     # Convert points to homogeneous coordinates and normalize
     points_homo = torch.cat(
         [
             points,
-            torch.ones(B, N, 1, dtype=points.dtype, device=points.device),
+            torch.ones(B, N, 1).to(device=points.device),
         ],
         dim=-1,
     )
     points_norm = points_homo / torch.norm(points_homo, dim=-1, keepdim=True)
 
     # Compute the outer product of each point with itself
-    outer_products = torch.einsum("bni,bnj->bnij", points_norm, points_norm)
+    outer_products = torch.einsum('bni,bnj->bnij', points_norm, points_norm)
 
     # Compute the term for each camera-point pair
-    terms = cams_from_world - torch.einsum("bnij,bnik->bnjk", outer_products, cams_from_world)
+    terms = cams_from_world - torch.einsum('bnij,bnik->bnjk', outer_products, cams_from_world)
 
     if mask is not None:
         terms = terms * mask[:, :, None, None]
 
-    A = torch.einsum("bnij,bnik->bjk", terms, terms)
+    A = torch.einsum('bnij,bnik->bjk', terms, terms)
 
     # Compute eigenvalues and eigenvectors
     num_A_batch = len(A)
@@ -118,8 +115,8 @@ def filter_all_points3D(
     extrinsics,
     intrinsics,
     extra_params=None,
-    max_reproj_error=4,
-    min_tri_angle=1.5,
+    max_reproj_error: float = 4.0,
+    min_tri_angle: float = 1.5,
     check_triangle=True,
     return_detail=False,
     hard_max=300,
@@ -149,7 +146,7 @@ def filter_all_points3D(
     all_tri_points_num = points2D.shape[0] * points2D.shape[1]
 
     if all_tri_points_num > max_points_num:
-        print("Filter 3D points in chunks to fit in memory")
+        print('Filter 3D points in chunks to fit in memory')
 
         num_splits = (all_tri_points_num + max_points_num - 1) // max_points_num
         split_points3D = torch.chunk(points3D, num_splits, dim=0)
@@ -200,8 +197,8 @@ def filter_all_points3D_single_chunk(
     extrinsics,
     intrinsics,
     extra_params=None,
-    max_reproj_error=4,
-    min_tri_angle=1.5,
+    max_reproj_error: float = 4.0,
+    min_tri_angle: float = 1.5,
     check_triangle=True,
     return_detail=False,
     hard_max=300,
@@ -300,8 +297,8 @@ def project_3D_points(
     Returns:
         torch.Tensor: Transformed 2D points of shape BxNx2.
     """
-    with autocast(device_type="cuda", dtype=torch.double):
-        N = points3D.shape[0]  # Number of points
+
+    with torch.amp.autocast(device_type='cuda', dtype=torch.double):
         B = extrinsics.shape[0]  # Batch size, i.e., number of cameras
         points3D_homogeneous = torch.cat([points3D, torch.ones_like(points3D[..., 0:1])], dim=1)  # Nx4
         # Reshape for batch processing
@@ -319,6 +316,7 @@ def project_3D_points(
 
         if return_points_cam:
             return points2D, points_cam
+
         return points2D
 
 
@@ -383,7 +381,8 @@ def cam_from_img(pred_tracks, intrinsics, extra_params=None):
         # Apply iterative undistortion
         try:
             tracks_normalized = iterative_undistortion(extra_params, tracks_normalized)
-        except:
+        except Exception as e:
+            print(f'Error occurred during iterative undistortion: {e}')
             tracks_normalized = single_undistortion(extra_params, tracks_normalized)
 
     return tracks_normalized
@@ -397,7 +396,7 @@ def calculate_normalized_angular_error_batched(point2D, point3D, cam_from_world,
     # point3D: PxNx3
     # cam_from_world: Bx3x4
 
-    B, N, _ = point2D.shape
+    B, _, _ = point2D.shape
     P, _, _ = point3D.shape
     assert len(cam_from_world) == B
 
@@ -532,9 +531,10 @@ def create_intri_matrix(focal_length, principal_point):
         torch.Tensor: A Bx3x3 or BxSx3x3 tensor containing the camera matrix for each image.
     """
 
+    device = focal_length.device
     if len(focal_length.shape) == 2:
         B = focal_length.shape[0]
-        intri_matrix = torch.zeros(B, 3, 3, dtype=focal_length.dtype, device=focal_length.device)
+        intri_matrix = torch.zeros(B, 3, 3).to(device)
         intri_matrix[:, 0, 0] = focal_length[:, 0]
         intri_matrix[:, 1, 1] = focal_length[:, 1]
         intri_matrix[:, 2, 2] = 1.0
@@ -542,7 +542,7 @@ def create_intri_matrix(focal_length, principal_point):
         intri_matrix[:, 1, 2] = principal_point[:, 1]
     else:
         B, S = focal_length.shape[0], focal_length.shape[1]
-        intri_matrix = torch.zeros(B, S, 3, 3, dtype=focal_length.dtype, device=focal_length.device)
+        intri_matrix = torch.zeros(B, S, 3, 3).to(device)
         intri_matrix[:, :, 0, 0] = focal_length[:, :, 0]
         intri_matrix[:, :, 1, 1] = focal_length[:, :, 1]
         intri_matrix[:, :, 2, 2] = 1.0

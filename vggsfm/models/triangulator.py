@@ -9,10 +9,10 @@ import numpy as np
 import torch
 import pycolmap
 import torch.nn as nn
-from torch.amp import autocast
+from pycolmap import CameraModelId
 
 # #####################
-from vggsfm.models.utils import get_EFP
+from vggsfm.models.utils import get_EFP, sample_features4d
 from vggsfm.utils.triangulation import (
     init_BA,
     global_BA,
@@ -55,7 +55,7 @@ class Triangulator(nn.Module):
         min_valid_track_length=3,
         robust_refine=2,
         extract_color=True,
-        camera_type="SIMPLE_PINHOLE",
+        camera_type=CameraModelId.SIMPLE_PINHOLE,
     ):
         """
         Conduct triangulation and bundle adjustment given
@@ -68,19 +68,18 @@ class Triangulator(nn.Module):
         torch.cuda.empty_cache()
 
         device = pred_tracks.device
-
-        with autocast(device_type="cuda", dtype=torch.float32):
+        with torch.amp.autocast(device_type='cuda', dtype=torch.float32):
             B, S, _, H, W = images.shape
 
             assert B == 1  # The released implementation now only supports batch=1 during inference
 
-            image_size = torch.tensor([W, H], dtype=pred_tracks.dtype, device=device)
+            image_size = torch.tensor([W, H], device=device)
             # extrinsics: B x S x 3 x 4
             # intrinsics: B x S x 3 x 3
             # focal_length, principal_point : B x S x 2
 
             extrinsics, intrinsics = get_EFP(pred_cameras, image_size, B, S)
-            inlier_fmat = preliminary_dict["fmat_inlier_mask"]
+            inlier_fmat = preliminary_dict['fmat_inlier_mask']
 
             # Remove B dim
             # To simplify the code, now we only support B==1 during inference
@@ -99,7 +98,7 @@ class Triangulator(nn.Module):
                 intrinsics[:, 1, 1] = fy
 
             extra_params = None
-            if camera_type == "SIMPLE_RADIAL":
+            if camera_type == CameraModelId.SIMPLE_RADIAL:
                 extra_params = torch.zeros_like(extrinsics[:, 0, 0:1])
 
             tracks_normalized = cam_from_img(pred_tracks, intrinsics)
@@ -151,7 +150,8 @@ class Triangulator(nn.Module):
                 init_max_reproj_error=init_max_reproj_error,
                 camera_type=camera_type,
             )
-            print("Finished init BA")
+            print(f'Finished init BA ({len(points3D_init)} points)')
+            assert extrinsics.dtype == torch.float32 and intrinsics.dtype == torch.float32
 
             # Given we have a well-conditioned point cloud,
             # we can optimize all the cameras by absolute pose refinement as in
@@ -172,7 +172,8 @@ class Triangulator(nn.Module):
                 shared_camera=shared_camera,
                 camera_type=camera_type,
             )
-            print("Finished init refine pose")
+            print('Finished init refine pose')
+            assert extrinsics.dtype == torch.float32 and intrinsics.dtype == torch.float32
 
             (
                 points3D,
@@ -194,7 +195,7 @@ class Triangulator(nn.Module):
                 shared_camera=shared_camera,
                 camera_type=camera_type,
             )
-            print("Finished track triangulation and BA")
+            print(f'Finished track triangulation and BA ({len(points3D)} points)')
 
             if robust_refine > 0:
                 for refine_idx in range(robust_refine):
@@ -237,12 +238,12 @@ class Triangulator(nn.Module):
                         shared_camera=shared_camera,
                         camera_type=camera_type,
                     )
-                    print(f"Finished robust refine {refine_idx}")
+                    print(f'Finished robust refine {refine_idx} ({len(points3D)} points)')
 
             ba_options = pycolmap.BundleAdjustmentOptions()
             ba_options.print_summary = False
 
-            print(f"Running iterative BA by {BA_iters} times")
+            print(f'Running iterative BA by {BA_iters} times')
             for BA_iter in range(BA_iters):
                 if BA_iter == (BA_iters - 1):
                     ba_options.print_summary = True
@@ -276,7 +277,7 @@ class Triangulator(nn.Module):
                     camera_type=camera_type,
                 )
 
-                print(f"Finished iterative BA {BA_iter}")
+                print(f'Finished iterative BA {BA_iter} ({len(points3D)} points)')
 
                 max_reproj_error = max_reproj_error // 2
                 if max_reproj_error <= 1:
@@ -303,8 +304,6 @@ class Triangulator(nn.Module):
             valid_2D_mask[:, valid_tracks] = BA_inlier_masks
 
             if extract_color:
-                from vggsfm.models.utils import sample_features4d
-
                 pred_track_rgb = sample_features4d(images.squeeze(0), pred_tracks)
 
                 valid_track_rgb = pred_track_rgb[:, valid_tracks]
@@ -312,13 +311,13 @@ class Triangulator(nn.Module):
                 sum_rgb = (BA_inlier_masks.float()[..., None] * valid_track_rgb).sum(dim=0)
                 points3D_rgb = sum_rgb / BA_inlier_masks.sum(dim=0)[:, None]
 
-                if points3D_rgb.shape[0] == max(reconstruction.point3D_ids()):
+                if len(reconstruction.point3D_ids()) > 0 and points3D_rgb.shape[0] == max(reconstruction.point3D_ids()):
                     for point3D_id in reconstruction.points3D:
                         color_255 = points3D_rgb[point3D_id - 1].cpu().numpy() * 255
                         reconstruction.points3D[point3D_id].color = np.round(color_255).astype(np.uint8)
                 else:
                     raise RuntimeError(
-                        "Cannot save point rgb colors to colmap reconstruction object. Please file an issue in github. "
+                        'Cannot save point rgb colors to colmap reconstruction object. Please file an issue in github. '
                     )
             else:
                 points3D_rgb = None
@@ -347,7 +346,7 @@ class Triangulator(nn.Module):
         min_valid_track_length,
         max_reproj_error=4,
         shared_camera=False,
-        camera_type="SIMPLE_PINHOLE",
+        camera_type=CameraModelId.SIMPLE_PINHOLE,
     ):
         """ """
         # Normalize the tracks

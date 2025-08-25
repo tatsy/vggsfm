@@ -6,7 +6,7 @@ description = "A package for the VGGSfM project."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE.txt" }
 urls = { homepage = "https://github.com/facebookresearch/vggsfm.git" }
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "numpy (>=1.26.0,<2.0.0)",
     "scipy (>=1.15.3,<2.0.0)",
@@ -21,85 +21,67 @@ dependencies = [
     "gradio (>=5.34.2,<6.0.0)",
     "trimesh (>=4.6.12,<5.0.0)",
     "huggingface-hub (>=0.33.0,<0.34.0)",
-    "pycolmap (>=3.11.0,<3.12.0)",
     "poselib (>=2.0.4,<3.0.0)",
     "fvcore (>=0.1.5.post20221221,<0.2.0)",
     "iopath (>=0.1.10,<0.2.0)",
     "joblib (>=1.5.1,<2.0.0)",
     "coloredlogs (>=15.0.1,<16.0.0)",
-    "lightglue",
     "rich (>=14.0.0,<15.0.0)",
-    "pyceres (>=2.4,<3.0)",
+    "torch (>=2.6.0,<2.7.0)",
+    "torchvision (>=0.21.0,<0.22.0)",
+    "pycolmap>=3.12.4",
+    "pyceres>=2.5",
+    "lightglue",
 ]
 
-[tool.poetry]
-package-mode = false
+[dependency-groups]
+dev = [
+    "flake8-pyproject>=1.2.3",
+    "mypy>=1.17.1",
+    "ruff>=0.12.10",
+]
 
-[tool.poetry.group.cpu]
-optional = true
-
-[tool.poetry.group.cpu.dependencies]
+[tool.uv.sources]
+lightglue =  { path = "dependency/LightGlue" }
 torch = [
-    { version = "2.7.0+cpu", markers = "extra != 'cuda'", source = "pytorch-cpu" },
+    { marker = "sys_platform == 'win32'", index = "pytorch-cu124" },
+    { marker = "sys_platform == 'linux'", index = "pytorch-cu124" },
+    { marker = "sys_platform == 'darwin'", index = "pytorch-cpu" },
 ]
 torchvision = [
-    { version = "0.22.0+cpu", markers = "extra != 'cuda'", source = "pytorch-cpu" },
+    { marker = "sys_platform == 'win32'", index = "pytorch-cu124" },
+    { marker = "sys_platform == 'linux'", index = "pytorch-cu124" },
+    { marker = "sys_platform == 'darwin'", index = "pytorch-cpu" },
 ]
 
-[tool.poetry.group.cuda]
-optional = true
-
-[tool.poetry.group.cuda.dependencies]
-torch = [
-    { version = "2.7.0+cu126", markers = "extra == 'cuda'", source = "pytorch-cuda" },
-]
-torchvision = [
-    { version = "0.22.0+cu126", markers = "extra == 'cuda'", source = "pytorch-cuda" },
-]
-xformers = [
-    { version = "0.0.30", markers = "extra == 'cuda'", source = "pytorch-cuda" },
-]
-
-[tool.poetry.dependencies]
-lightglue = { path = "dependency/LightGlue" }
-
-[tool.poetry.group.dev.dependencies]
-flake8-pyproject = "^1.2.3"
-black = "^25.1.0"
-isort = "^6.0.1"
-mypy = "^1.16.1"
-
-
-[[tool.poetry.source]]
+[[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
+explicit = true
 
-[[tool.poetry.source]]
-name = "pytorch-cuda"
-url = "https://download.pytorch.org/whl/cu126"
-priority = "explicit"
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
 
 
-[build-system]
-requires = ["setuptools", "poetry-core>=2.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.ruff]
+line-length = 120
+target-version = "py311"
 
-[tool.isort]
-profile = "black"
-length_sort = true
-line_length = 120
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = false
-use_parentheses = true
-known_third_party = ["numpy", "torch", "wandb"]
-skip_glob = [
-    "**/build/**",
-    "**/.mypy_cache/**",
-    "**/.pytest_cache/**",
-    "**/.vscode/**",
-]
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["E", "W", "F"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+length-sort = true
+length-sort-straight = true
+
 
 [tool.mypy]
 python_version = "3.11"
@@ -113,8 +95,3 @@ allow_redefinition = true
 [tool.flake8]
 max-line-length = 120
 ignore = "Q000,E127,E203,E402,W503,W504"
-
-[tool.black]
-target-version = ["py311"]
-line-length = 120
-skip-string-normalization = true

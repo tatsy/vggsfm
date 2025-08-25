@@ -45,7 +45,7 @@ class DemoLoader(Dataset):
         normalize_cameras: bool = True,
         sort_by_filename: bool = True,
         load_gt: bool = False,
-        prefix: str = "images",
+        prefix: str = 'images',
     ):
         """
         Initialize the DemoLoader dataset.
@@ -63,7 +63,7 @@ class DemoLoader(Dataset):
                     If True, the gt is assumed to be in the sparse/0 directory, in a colmap format.
         """
         if not SCENE_DIR:
-            raise ValueError("SCENE_DIR cannot be None")
+            raise ValueError('SCENE_DIR cannot be None')
 
         self.SCENE_DIR = SCENE_DIR
         self.crop_longest = True
@@ -73,9 +73,9 @@ class DemoLoader(Dataset):
         self.prefix = prefix
 
         bag_name = os.path.basename(os.path.normpath(SCENE_DIR))
-        self.have_mask = os.path.exists(os.path.join(SCENE_DIR, "masks"))
+        self.have_mask = os.path.exists(os.path.join(SCENE_DIR, 'masks'))
 
-        img_filenames = glob.glob(os.path.join(SCENE_DIR, f"{self.prefix}/*"))
+        img_filenames = glob.glob(os.path.join(SCENE_DIR, f'{self.prefix}/*'))
 
         if self.sort_by_filename:
             img_filenames = sorted(img_filenames)
@@ -107,7 +107,7 @@ class DemoLoader(Dataset):
         calib_dict = self._load_calibration_data() if self.load_gt else {}
 
         for img_name in img_filenames:
-            frame_dict = {"img_path": img_name}
+            frame_dict = {'img_path': img_name}
             if self.load_gt:
                 anno_dict = calib_dict[os.path.basename(img_name)]
                 frame_dict.update(anno_dict)
@@ -121,10 +121,10 @@ class DemoLoader(Dataset):
         Returns:
             dict: Dictionary containing calibration data for each image.
         """
-        reconstruction = pycolmap.Reconstruction(os.path.join(self.SCENE_DIR, "sparse", "0"))
+        reconstruction = pycolmap.Reconstruction(os.path.join(self.SCENE_DIR, 'sparse', '0'))
         calib_dict = {}
         for image_id, image in reconstruction.images.items():
-            extrinsic = image.cam_from_world.matrix
+            extrinsic = image.cam_from_world().matrix()
             intrinsic = reconstruction.cameras[image.camera_id].calibration_matrix()
 
             R = torch.from_numpy(extrinsic[:, :3])
@@ -133,10 +133,10 @@ class DemoLoader(Dataset):
             pp = torch.from_numpy(intrinsic[[0, 1], [2, 2]])
 
             calib_dict[image.name] = {
-                "R": R,
-                "T": T,
-                "focal_length": fl,
-                "principal_point": pp,
+                'R': R,
+                'T': T,
+                'focal_length': fl,
+                'principal_point': pp,
             }
         return calib_dict
 
@@ -156,7 +156,7 @@ class DemoLoader(Dataset):
         if self.eval_time:
             return self.get_data(index=idx_N, ids=None)
         else:
-            raise NotImplementedError("Do not train on Sequence.")
+            raise NotImplementedError('Do not train on Sequence.')
 
     def get_data(
         self,
@@ -188,7 +188,7 @@ class DemoLoader(Dataset):
         annos = [metadata[i] for i in ids]
 
         if self.sort_by_filename:
-            annos = sorted(annos, key=lambda x: x["img_path"])
+            annos = sorted(annos, key=lambda x: x['img_path'])
 
         batch, image_paths = self._prepare_batch(
             sequence_name,
@@ -202,11 +202,11 @@ class DemoLoader(Dataset):
         return batch
 
     def _load_image_with_anno(self, anno):
-        image_path = anno["img_path"]
+        image_path = anno['img_path']
         image = cv2.imread(image_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         if self.have_mask:
-            mask_path = image_path.replace(f"/{self.prefix}", "/masks")
+            mask_path = image_path.replace(f'/{self.prefix}', '/masks')
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         else:
             mask = None
@@ -223,8 +223,8 @@ class DemoLoader(Dataset):
         if self.load_gt:
             bbox_xywh = torch.tensor(bbox_xyxy_to_xywh(bbox), dtype=torch.float32)
             (focal_length_cropped, principal_point_cropped) = adjust_camera_to_bbox_crop_(
-                anno["focal_length"],
-                anno["principal_point"],
+                anno['focal_length'],
+                anno['principal_point'],
                 torch.tensor(image.size, dtype=torch.float32),
                 bbox_xywh,
             )
@@ -264,7 +264,7 @@ class DemoLoader(Dataset):
         Returns:
             dict: Batch of data containing transformed images, masks, crop parameters, original images, and other relevant information.
         """
-        batch = {"seq_name": sequence_name, "frame_num": len(metadata)}
+        batch = {'seq_name': sequence_name, 'frame_num': len(metadata)}
 
         if self.load_gt:
             new_fls, new_pps = [], []
@@ -276,7 +276,7 @@ class DemoLoader(Dataset):
 
         n_jobs = min(4, mp.cpu_count())
         result = Parallel(n_jobs=n_jobs)(
-            delayed(self._load_image_with_anno)(anno) for anno in track(annos, description="Preparing images")
+            delayed(self._load_image_with_anno)(anno) for anno in track(annos, description='Preparing images')
         )
 
         for (
@@ -304,10 +304,10 @@ class DemoLoader(Dataset):
 
         batch.update(
             {
-                "image": images.clamp(0, 1),
-                "crop_params": torch.stack(crop_parameters),
-                "scene_dir": os.path.dirname(os.path.dirname(image_paths[0])),
-                "masks": masks.clamp(0, 1) if masks is not None else None,
+                'image': images.clamp(0, 1),
+                'crop_params': torch.stack(crop_parameters),
+                'scene_dir': os.path.dirname(os.path.dirname(image_paths[0])),
+                'masks': masks.clamp(0, 1) if masks is not None else None,
             }
         )
 
@@ -336,10 +336,10 @@ class DemoLoader(Dataset):
         new_fls = torch.stack(new_fls)
         new_pps = torch.stack(new_pps)
 
-        batchR = torch.cat([data["R"][None] for data in annos])
-        batchT = torch.cat([data["T"][None] for data in annos])
+        batchR = torch.cat([data['R'][None] for data in annos])
+        batchT = torch.cat([data['T'][None] for data in annos])
 
-        batch = {"rawR": batchR.clone(), "rawT": batchT.clone()}
+        batch = {'rawR': batchR.clone(), 'rawT': batchT.clone()}
 
         # From OPENCV/COLMAP to PT3D
         batchR = batchR.clone().permute(0, 2, 1)
@@ -357,26 +357,26 @@ class DemoLoader(Dataset):
         if self.normalize_cameras:
             normalized_cameras, _ = normalize_cameras(cameras, points=None)
             if normalized_cameras == -1:
-                raise RuntimeError("Error in normalizing cameras: camera scale was 0")
+                raise RuntimeError('Error in normalizing cameras: camera scale was 0')
 
             batch.update(
                 {
-                    "R": normalized_cameras.R,
-                    "T": normalized_cameras.T,
-                    "fl": normalized_cameras.focal_length,
-                    "pp": normalized_cameras.principal_point,
+                    'R': normalized_cameras.R,
+                    'T': normalized_cameras.T,
+                    'fl': normalized_cameras.focal_length,
+                    'pp': normalized_cameras.principal_point,
                 }
             )
 
-            if torch.any(torch.isnan(batch["T"])):
-                raise RuntimeError("NaN values found in camera translations")
+            if torch.any(torch.isnan(batch['T'])):
+                raise RuntimeError('NaN values found in camera translations')
         else:
             batch.update(
                 {
-                    "R": cameras.R,
-                    "T": cameras.T,
-                    "fl": cameras.focal_length,
-                    "pp": cameras.principal_point,
+                    'R': cameras.R,
+                    'T': cameras.T,
+                    'fl': cameras.focal_length,
+                    'pp': cameras.principal_point,
                 }
             )
 
@@ -489,7 +489,7 @@ def _crop_image(image: np.ndarray, bbox: np.ndarray, white_bg=False) -> np.ndarr
     if new_h > h:
         pad_t = (new_h - h) // 2
         pad_b = new_h - h - pad_t
-        new_image = np.pad(image, ((pad_t, pad_b), (0, 0), (0, 0)), mode="constant", constant_values=bg)
+        new_image = np.pad(image, ((pad_t, pad_b), (0, 0), (0, 0)), mode='constant', constant_values=bg)
     else:
         new_image = image[bbox[1] : bbox[3]]
 
@@ -499,7 +499,7 @@ def _crop_image(image: np.ndarray, bbox: np.ndarray, white_bg=False) -> np.ndarr
         new_image = np.pad(
             new_image,
             ((0, 0), (pad_l, pad_r), (0, 0)),
-            mode="constant",
+            mode='constant',
             constant_values=bg,
         )
     else:

@@ -34,14 +34,14 @@ class VideoRunner(VGGSfMRunner):
         self.crop_params = None
         self.intrinsics = None
 
-        assert self.cfg.shared_camera, "Currently only shared camera is supported for video runner"
+        assert self.cfg.shared_camera, 'Currently only shared camera is supported for video runner'
 
         # TODO: add a loop detection
         # TODO: support the handle of invalid frames
         # TODO: support camera parameter change in the future
 
         if self.cfg.extra_pt_pixel_interval > 0:
-            raise ValueError("Extra points have not been supported for video runner; Stay tuned Please!")
+            raise ValueError('Extra points have not been supported for video runner; Stay tuned Please!')
 
     def run(
         self,
@@ -62,8 +62,8 @@ class VideoRunner(VGGSfMRunner):
 
         if output_dir is None:
             now = datetime.datetime.now()
-            timestamp = now.strftime("%Y%m%d_%H%M")
-            output_dir = f"{seq_name}_{timestamp}"
+            timestamp = now.strftime('%Y%m%d_%H%M')
+            output_dir = f'{seq_name}_{timestamp}'
 
         with torch.no_grad():
             images = move_to_device(images, self.device)
@@ -118,9 +118,9 @@ class VideoRunner(VGGSfMRunner):
             self.cfg.max_query_pts = self.cfg.max_query_pts // 2
 
             _, init_intri, init_extra = (
-                init_pred["extrinsics_opencv"],
-                init_pred["intrinsics_opencv"],
-                init_pred["extra_params"],
+                init_pred['extrinsics_opencv'],
+                init_pred['intrinsics_opencv'],
+                init_pred['extra_params'],
             )
 
             if init_extra is None:
@@ -140,29 +140,29 @@ class VideoRunner(VGGSfMRunner):
                     start_idx, end_idx, move_success, _ = self.move_window(start_idx, end_idx, window_size)
 
                 if not move_success:
-                    logging.warning("Moving window failed, increase query points temporarily!")
+                    logging.warning('Moving window failed, increase query points temporarily!')
                     self.cfg.max_query_pts = self.cfg.max_query_pts * 2
                     start_idx, end_idx, move_success, _ = self.move_window(start_idx, end_idx, window_size)
                     self.cfg.max_query_pts = self.cfg.max_query_pts // 2
                     if not move_success:
-                        logging.error("Moving window failed again (it may cause infinite loop)!")
+                        logging.error('Moving window failed again (it may cause infinite loop)!')
 
                 if window_counter % joint_BA_interval == 0:
-                    print("Running joint BA:")
+                    print('Running joint BA:')
                     start_time = time.time()
 
                     self.joint_BA(0, end_idx, normalize=True)
 
                     end_time = time.time()
-                    print(f"Joint BA took {end_time - start_time:.2f} seconds")
+                    print(f'Joint BA took {end_time - start_time:.2f} seconds')
 
                 window_counter += 1  # Increment the window counter
 
             # Conduct a BA for the entire sequence
-            logging.info("Running joint BA for the entire sequence:")
+            logging.info('Running joint BA for the entire sequence:')
             self.joint_BA(0, T, normalize=True)
 
-            logging.info("Updating points color")
+            logging.info('Updating points color')
             self._update_points_color()  # TODO: _update_points_color is too slow, fix it
 
             predictions = self.dicts_to_output(0, T, back_to_original_resolution=True)
@@ -181,7 +181,7 @@ class VideoRunner(VGGSfMRunner):
 
                 # Save the dense depth maps
                 if self.cfg.save_to_disk:
-                    self.save_dense_depth_maps(predictions["depth_dict"], output_dir)
+                    self.save_dense_depth_maps(predictions['depth_dict'], output_dir)
 
             # Create reprojection video if enabled
             if self.cfg.make_reproj_video:
@@ -190,7 +190,7 @@ class VideoRunner(VGGSfMRunner):
                 img_with_circles_list = self.make_reprojection_video(
                     predictions, video_size, image_paths, original_images
                 )
-                predictions["reproj_video"] = img_with_circles_list
+                predictions['reproj_video'] = img_with_circles_list
                 if self.cfg.save_to_disk:
                     self.save_reprojection_video(img_with_circles_list, video_size, output_dir)
 
@@ -201,10 +201,10 @@ class VideoRunner(VGGSfMRunner):
             return predictions
 
     def dicts_to_output(self, start_idx, end_idx, back_to_original_resolution=False):
-        print("Converting predictions to the output format")
-        assert self.crop_params is not None, "Crop parameters must be set before converting to output format"
+        print('Converting predictions to the output format')
+        assert self.crop_params is not None, 'Crop parameters must be set before converting to output format'
         if self.cfg.extra_pt_pixel_interval > 0:
-            raise ValueError("Extra points have not been supported for video runner; Stay tuned Please!")
+            raise ValueError('Extra points have not been supported for video runner; Stay tuned Please!')
 
         predictions = {}
         T = self.images.shape[1]
@@ -220,7 +220,7 @@ class VideoRunner(VGGSfMRunner):
                 shared_camera=self.cfg.shared_camera,
             )
 
-        predictions["reconstruction"] = reconstruction
+        predictions['reconstruction'] = reconstruction
 
         # NOTE:
         # We can do this only when we know
@@ -230,26 +230,26 @@ class VideoRunner(VGGSfMRunner):
             reconstruction, device=self.device, camera_type=self.cfg.camera_type
         )
 
-        predictions["extrinsics_opencv"] = extrinsics
-        predictions["intrinsics_opencv"] = intrinsics
-        predictions["extra_params"] = extra_params
+        predictions['extrinsics_opencv'] = extrinsics
+        predictions['intrinsics_opencv'] = intrinsics
+        predictions['extra_params'] = extra_params
 
         points_xyz = []
         points_rgb = []
         for point_id in self.point_dict.keys():
             point_data = self.point_dict[point_id]
-            points_xyz.append(point_data["xyz"])
-            points_rgb.append(point_data["rgb"])
+            points_xyz.append(point_data['xyz'])
+            points_rgb.append(point_data['rgb'])
 
-        predictions["points3D"] = torch.stack(points_xyz).to(self.device)
-        predictions["points3D_rgb"] = torch.stack(points_rgb).to(self.device)
+        predictions['points3D'] = torch.stack(points_xyz).to(self.device)
+        predictions['points3D_rgb'] = torch.stack(points_rgb).to(self.device)
 
-        predictions["unproj_dense_points3D"] = None
-        predictions["valid_2D_mask"] = None
-        predictions["pred_track"] = None
-        predictions["pred_vis"] = None
-        predictions["pred_score"] = None
-        predictions["valid_tracks"] = None
+        predictions['unproj_dense_points3D'] = None
+        predictions['valid_2D_mask'] = None
+        predictions['pred_track'] = None
+        predictions['pred_vis'] = None
+        predictions['pred_score'] = None
+        predictions['valid_tracks'] = None
         return predictions
 
     def calculate_bounding_boxes(self, crop_params, images):
@@ -301,30 +301,30 @@ class VideoRunner(VGGSfMRunner):
             points3D,
             points3D_rgb,
         ) = (
-            pred["pred_track"],
-            pred["pred_vis"],
-            pred["valid_2D_mask"],
-            pred["valid_tracks"],
-            pred["points3D"],
-            pred["points3D_rgb"],
+            pred['pred_track'],
+            pred['pred_vis'],
+            pred['valid_2D_mask'],
+            pred['valid_tracks'],
+            pred['points3D'],
+            pred['points3D_rgb'],
         )
 
         point_to_track_mapping = valid_tracks.nonzero().squeeze(1).cpu().numpy()
 
-        if "points3D_idx" not in pred:
+        if 'points3D_idx' not in pred:
             points3D_idx = np.arange(len(points3D))
         else:
-            points3D_idx = pred["points3D_idx"]
+            points3D_idx = pred['points3D_idx']
 
-        extrinsics = pred["extrinsics_opencv"]
+        extrinsics = pred['extrinsics_opencv']
 
         # save them in cpu
         extrinsics = extrinsics.detach().cpu()
         for frame_idx in range(start_idx, end_idx):
             relative_frame_idx = frame_idx - start_idx
-            self.frame_dict[frame_idx]["extri"] = extrinsics[relative_frame_idx]
-            if "visible_points" not in self.frame_dict[frame_idx]:
-                self.frame_dict[frame_idx]["visible_points"] = []
+            self.frame_dict[frame_idx]['extri'] = extrinsics[relative_frame_idx]
+            if 'visible_points' not in self.frame_dict[frame_idx]:
+                self.frame_dict[frame_idx]['visible_points'] = []
 
         if len(self.point_dict.keys()) == 0:
             exist_max_point = 0
@@ -357,7 +357,6 @@ class VideoRunner(VGGSfMRunner):
         points3D_rgb=None,
         existing_max_point_idx=0,
     ):
-
         pred_track = pred_track.squeeze(0).cpu()
         pred_vis = pred_vis.squeeze(0).cpu()
         if points3D is not None:
@@ -379,7 +378,7 @@ class VideoRunner(VGGSfMRunner):
 
             if abs_point_idx in self.point_dict:
                 # if the point is already in the point dict, we need to update the track dict
-                point_track_dict = self.point_dict[abs_point_idx]["track"]
+                point_track_dict = self.point_dict[abs_point_idx]['track']
             else:
                 point_track_dict = {}
 
@@ -387,21 +386,21 @@ class VideoRunner(VGGSfMRunner):
                 relative_frame_idx = frame_idx - start_idx
                 if point_valid_2D_mask[relative_frame_idx]:
                     point_track_dict[frame_idx] = {
-                        "uv": pred_track[relative_frame_idx, track_idx],
-                        "vis": pred_vis[relative_frame_idx, track_idx],
+                        'uv': pred_track[relative_frame_idx, track_idx],
+                        'vis': pred_vis[relative_frame_idx, track_idx],
                     }
 
-                    self.frame_dict[frame_idx]["visible_points"].append(abs_point_idx)
+                    self.frame_dict[frame_idx]['visible_points'].append(abs_point_idx)
 
             if abs_point_idx not in self.point_dict:
                 # if the point is already in the point dict,
                 # we don't need to update id, xyz, and rgb
 
                 point_dict = {
-                    "id": abs_point_idx,
-                    "xyz": points3D[point_idx],
-                    "rgb": (points3D_rgb[point_idx] if points3D_rgb is not None else None),
-                    "track": point_track_dict,
+                    'id': abs_point_idx,
+                    'xyz': points3D[point_idx],
+                    'rgb': (points3D_rgb[point_idx] if points3D_rgb is not None else None),
+                    'track': point_track_dict,
                 }
 
                 self.point_dict[abs_point_idx] = point_dict
@@ -445,7 +444,7 @@ class VideoRunner(VGGSfMRunner):
         intrinsics_opt = torch.from_numpy(reconstruction.cameras[0].calibration_matrix()).to(self.device).float()
         self.intrinsics = intrinsics_opt[None].clone()  # 1x3x3
 
-        if self.cfg.camera_type == "SIMPLE_RADIAL":
+        if self.cfg.camera_type == 'SIMPLE_RADIAL':
             extra_params_opt = torch.from_numpy(reconstruction.cameras[0].params).to(self.device).float()
             self.extra_params = extra_params_opt[-1].reshape(1, 1).clone()  # 1 x num_extra_params
 
@@ -461,12 +460,12 @@ class VideoRunner(VGGSfMRunner):
         points3d_idx_list = sorted(list(self.point_dict.keys()))
         for pidx in points3d_idx_list:
             if extract_color:
-                point_color = np.round(self.point_dict[pidx]["rgb"].numpy() * 255).astype(np.uint8)
+                point_color = np.round(self.point_dict[pidx]['rgb'].numpy() * 255).astype(np.uint8)
             else:
                 point_color = np.zeros(3)
 
             reconstruction.add_point3D(
-                self.point_dict[pidx]["xyz"].numpy(),
+                self.point_dict[pidx]['xyz'].numpy(),
                 pycolmap.Track(),
                 point_color,
             )
@@ -476,13 +475,13 @@ class VideoRunner(VGGSfMRunner):
 
         for image_idx in range(start_idx, end_idx):
             cam_from_world = pycolmap.Rigid3d(
-                pycolmap.Rotation3d(self.frame_dict[image_idx]["extri"][:3, :3]),
-                self.frame_dict[image_idx]["extri"][:3, 3],
+                pycolmap.Rotation3d(self.frame_dict[image_idx]['extri'][:3, :3]),
+                self.frame_dict[image_idx]['extri'][:3, 3],
             )
 
             pyimg = pycolmap.Image(
                 id=image_idx,
-                name=f"image_{image_idx}",
+                name=f'image_{image_idx}',
                 camera_id=pycam.camera_id,
                 cam_from_world=cam_from_world,
             )
@@ -490,9 +489,9 @@ class VideoRunner(VGGSfMRunner):
             points2D_list = []
 
             point2D_idx = 0
-            for point3D_id in self.frame_dict[image_idx]["visible_points"]:
+            for point3D_id in self.frame_dict[image_idx]['visible_points']:
                 pycolmap_point3D_id = point3D_id + 1
-                point2D_xy = self.point_dict[point3D_id]["track"][image_idx]["uv"].numpy()
+                point2D_xy = self.point_dict[point3D_id]['track'][image_idx]['uv'].numpy()
                 points2D_list.append(pycolmap.Point2D(point2D_xy, pycolmap_point3D_id))
 
                 track = reconstruction.points3D[pycolmap_point3D_id].track
@@ -501,10 +500,10 @@ class VideoRunner(VGGSfMRunner):
             assert point2D_idx == len(points2D_list)
 
             try:
-                pyimg.points2D = pycolmap.ListPoint2D(points2D_list)
+                pyimg.points2D = pycolmap.Point2DList(points2D_list)
                 # pyimg.registered = True
             except Exception as e:
-                logging.warning(f"frame {image_idx} is out of BA")
+                logging.warning(f'frame {image_idx} is out of BA')
                 print(e)
                 # pyimg.registered = False
 
@@ -514,10 +513,10 @@ class VideoRunner(VGGSfMRunner):
 
     def reconstruction_to_dicts(self, reconstruction):
         # Convert reconstruction to frame_dict
-        assert self.intrinsics is not None, "Intrinsics must be set before reconstruction_to_dicts"
+        assert self.intrinsics is not None, 'Intrinsics must be set before reconstruction_to_dicts'
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]["extri"] = torch.tensor(
-                image.cam_from_world.matrix(),
+            self.frame_dict[image_id]['extri'] = torch.tensor(
+                image.cam_from_world().matrix(),
                 dtype=self.intrinsics.dtype,
             )
             self.frame_dict[image_id]['visible_points'] = []
@@ -550,12 +549,12 @@ class VideoRunner(VGGSfMRunner):
     def move_window(self, start_idx, end_idx, window_size, min_valid_track_length=3):
         # Move forward to the right first
         last_window_size = end_idx - start_idx
-        assert last_window_size > 0, "last_window_size should be positive"
+        assert last_window_size > 0, 'last_window_size should be positive'
 
         last_start_idx = start_idx
         start_idx = end_idx
         end_idx = start_idx + window_size
-        print(f"Processing window from {start_idx} to {end_idx}")
+        print(f'Processing window from {start_idx} to {end_idx}')
 
         # Include the last window in the next window for average_camera_prediction
         # because we need to align the camera prediction of the next window with the last window
@@ -572,7 +571,7 @@ class VideoRunner(VGGSfMRunner):
         )
 
         last_extri = torch.stack(
-            [self.frame_dict[frame_idx]["extri"] for frame_idx in range(last_start_idx, start_idx)]
+            [self.frame_dict[frame_idx]['extri'] for frame_idx in range(last_start_idx, start_idx)]
         ).to(self.device)
 
         pred_extri = torch.cat((pred_cameras.R, pred_cameras.T.unsqueeze(-1)), dim=-1)
@@ -610,7 +609,7 @@ class VideoRunner(VGGSfMRunner):
 
             if first_invalid_index > 2:
                 window_size = first_invalid_index - 1  # TODO: -1 or not?
-                print(f"Shrink the window from {start_idx}-{end_idx} to {start_idx}-{start_idx + window_size}")
+                print(f'Shrink the window from {start_idx}-{end_idx} to {start_idx}-{start_idx + window_size}')
                 end_idx = start_idx + window_size
 
                 window_images = window_images[:, : (window_size + 1)]
@@ -665,7 +664,7 @@ class VideoRunner(VGGSfMRunner):
         window_tracks_all = torch.cat([exist_valid_tracks, window_new_tracks], dim=1)
         window_inlier_masks_all = torch.cat([exist_valid_inlier_masks, window_new_inlier_masks], dim=1)
 
-        assert self.intrinsics is not None, "Intrinsics must be set up to here!"
+        assert self.intrinsics is not None, 'Intrinsics must be set up to here!'
         rec = batch_matrix_to_pycolmap(
             window_points_all,
             align_extri_window_plus_one,
@@ -722,13 +721,13 @@ class VideoRunner(VGGSfMRunner):
         )
 
         new_pred = {}
-        new_pred["extrinsics_opencv"] = extrinsics[1:]
-        new_pred["pred_track"] = new_valid_tracks[1:]
-        new_pred["pred_vis"] = window_new_vis[:, new_valid_tracks_mask][1:]
-        new_pred["valid_2D_mask"] = new_valid_inlier_masks[1:]
-        new_pred["valid_tracks"] = new_valid_tracks_mask[new_valid_tracks_mask]
-        new_pred["points3D"] = new_valid_points
-        new_pred["points3D_rgb"] = None
+        new_pred['extrinsics_opencv'] = extrinsics[1:]
+        new_pred['pred_track'] = new_valid_tracks[1:]
+        new_pred['pred_vis'] = window_new_vis[:, new_valid_tracks_mask][1:]
+        new_pred['valid_2D_mask'] = new_valid_inlier_masks[1:]
+        new_pred['valid_tracks'] = new_valid_tracks_mask[new_valid_tracks_mask]
+        new_pred['points3D'] = new_valid_points
+        new_pred['points3D_rgb'] = None
 
         self.convert_pred_to_point_frame_dict(new_pred, start_idx, end_idx)
 
@@ -837,7 +836,7 @@ class VideoRunner(VGGSfMRunner):
             if inlier_mask.sum() <= min_vis_num:
                 # If too few inliers, ignore it
                 # use all the points
-                print("Too small inliers")
+                print('Too small inliers')
                 inlier_mask[:] = 1
 
             if use_pnp:
@@ -851,8 +850,8 @@ class VideoRunner(VGGSfMRunner):
                     estoptions,
                     refoptions,
                 )
-                cam_from_world = estanswer["cam_from_world"]
-                print(estanswer["inliers"].mean())
+                cam_from_world = estanswer['cam_from_world']
+                print(estanswer['inliers'].mean())
 
             answer = pycolmap.refine_absolute_pose(
                 cam_from_world,
@@ -863,7 +862,7 @@ class VideoRunner(VGGSfMRunner):
                 refoptions,
             )
 
-            cam_from_world = answer["cam_from_world"]
+            cam_from_world = answer['cam_from_world']
             refined_extrinsics.append(cam_from_world.matrix())
 
         # get the optimized cameras
@@ -871,7 +870,7 @@ class VideoRunner(VGGSfMRunner):
         return refined_extrinsics
 
     def build_camera_for_video(self):
-        if self.cfg.camera_type == "SIMPLE_RADIAL":
+        if self.cfg.camera_type == 'SIMPLE_RADIAL':
             pycolmap_intri = np.array(
                 [
                     self.intrinsics[0][0, 0].item(),
@@ -881,7 +880,7 @@ class VideoRunner(VGGSfMRunner):
                 ],
                 dtype=np.float32,
             )
-        elif self.cfg.camera_type == "SIMPLE_PINHOLE":
+        elif self.cfg.camera_type == 'SIMPLE_PINHOLE':
             pycolmap_intri = np.array(
                 [
                     self.intrinsics[0][0, 0].item(),
@@ -891,7 +890,7 @@ class VideoRunner(VGGSfMRunner):
                 dtype=np.float32,
             )
         else:
-            raise NotImplementedError(f"Camera type {self.cfg.camera_type} not implemented")
+            raise NotImplementedError(f'Camera type {self.cfg.camera_type} not implemented')
 
         # We assume the same camera for all frames in a video
         pycam = pycolmap.Camera(
@@ -914,7 +913,7 @@ class VideoRunner(VGGSfMRunner):
         random_support_points=True,
         track_vis_thres=0.05,
     ):
-        last_end_visible_points_idx = self.frame_dict[start_idx - back_step]["visible_points"]
+        last_end_visible_points_idx = self.frame_dict[start_idx - back_step]['visible_points']
 
         max_exist_points_num = self.cfg.max_query_pts * max_ratio
 
@@ -922,12 +921,12 @@ class VideoRunner(VGGSfMRunner):
             last_end_visible_points_idx = sorted(random.sample(last_end_visible_points_idx, max_exist_points_num))
 
         last_end_visible_points_3D = [
-            self.point_dict[point3D_idx]["xyz"] for point3D_idx in last_end_visible_points_idx
+            self.point_dict[point3D_idx]['xyz'] for point3D_idx in last_end_visible_points_idx
         ]
         last_end_visible_points_3D = torch.stack(last_end_visible_points_3D)
 
         last_end_visible_points_2D = [
-            self.point_dict[point3D_idx]["track"][start_idx - back_step]["uv"]
+            self.point_dict[point3D_idx]['track'][start_idx - back_step]['uv']
             for point3D_idx in last_end_visible_points_idx
         ]
         last_end_visible_points_2D = torch.stack(last_end_visible_points_2D)
@@ -999,7 +998,7 @@ class VideoRunner(VGGSfMRunner):
 
         window_vis_inlier_for_exist_points = window_vis_for_exist_points > track_vis_thres
 
-        last_end_extri = self.frame_dict[start_idx - back_step]["extri"][None].to(self.device)
+        last_end_extri = self.frame_dict[start_idx - back_step]['extri'][None].to(self.device)
 
         extri_window_plus_one = torch.cat([last_end_extri, aligned_pred_extri_next_window], dim=0)
 
@@ -1093,7 +1092,9 @@ class VideoRunner(VGGSfMRunner):
     def update_dicts_by_reconstruction(self, reconstruction, start_idx, end_idx):
         # Update dicts by reconstruction
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]['extri'] = torch.tensor(image.cam_from_world.matrix(), dtype=reconstruction.dtype)
+            self.frame_dict[image_id]['extri'] = torch.tensor(
+                image.cam_from_world().matrix(), dtype=reconstruction.dtype
+            )
 
         for point3D_id in sorted(self.point_dict.keys()):
             pycolmap_point3D_id = point3D_id + 1
@@ -1106,28 +1107,28 @@ class VideoRunner(VGGSfMRunner):
 
                 # Remove the filtered 2D observations
                 for frame_idx in range(start_idx, end_idx):
-                    if frame_idx in self.point_dict[point3D_id]["track"]:
+                    if frame_idx in self.point_dict[point3D_id]['track']:
                         if frame_idx not in visible_frames:
-                            del self.point_dict[point3D_id]["track"][frame_idx]
-                            self.frame_dict[frame_idx]["visible_points"].remove(point3D_id)
+                            del self.point_dict[point3D_id]['track'][frame_idx]
+                            self.frame_dict[frame_idx]['visible_points'].remove(point3D_id)
             else:
                 for frame_idx in range(start_idx, end_idx):
-                    if frame_idx in self.point_dict[point3D_id]["track"]:
-                        del self.point_dict[point3D_id]["track"][frame_idx]
-                        self.frame_dict[frame_idx]["visible_points"].remove(point3D_id)
+                    if frame_idx in self.point_dict[point3D_id]['track']:
+                        del self.point_dict[point3D_id]['track'][frame_idx]
+                        self.frame_dict[frame_idx]['visible_points'].remove(point3D_id)
 
 
 def log_ba_summary(summary) -> bool:
     print('==============================================================================')
     print('Global bundle adjustment')
     print('==============================================================================')
-    print(f"Residuals : {summary.num_residuals_reduced}")
+    print(f'Residuals : {summary.num_residuals_reduced}')
     if summary.num_residuals_reduced > 0:
-        print(f"  Parameters : {summary.num_effective_parameters_reduced}")
-        print(f"  Iterations : {summary.num_successful_steps + summary.num_unsuccessful_steps}")
-        print(f"        Time : {summary.total_time_in_seconds} [s]")
-        print(f"Initial cost : {np.sqrt(summary.initial_cost / summary.num_residuals_reduced)} [px]")
-        print(f"  Final cost : {np.sqrt(summary.final_cost / summary.num_residuals_reduced)} [px]")
+        print(f'  Parameters : {summary.num_effective_parameters_reduced}')
+        print(f'  Iterations : {summary.num_successful_steps + summary.num_unsuccessful_steps}')
+        print(f'        Time : {summary.total_time_in_seconds} [s]')
+        print(f'Initial cost : {np.sqrt(summary.initial_cost / summary.num_residuals_reduced)} [px]')
+        print(f'  Final cost : {np.sqrt(summary.final_cost / summary.num_residuals_reduced)} [px]')
         logging.info('Bundle adjustment completed successfully!')
         return True
     else:

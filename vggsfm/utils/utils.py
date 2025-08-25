@@ -36,7 +36,7 @@ def average_camera_prediction(
     # this is almost a free-lunch
 
     # Ensure function is only used for inference with batch_size 1
-    assert batch_size == 1, "This function is designed for inference with batch_size=1."
+    assert batch_size == 1, 'This function is designed for inference with batch_size=1.'
 
     # Determine the number of frames in the input image
     num_frames = len(reshaped_image)
@@ -62,7 +62,7 @@ def average_camera_prediction(
         with image_order_swap([reshaped_image], query_index, dim=0) as reshaped_image_ordered:
             # Predict camera parameters using the reordered image
             # NOTE the output has been in OPENCV format instead of PyTorch3D
-            pred_cameras = camera_predictor(reshaped_image_ordered[0], batch_size=batch_size)["pred_cameras"]
+            pred_cameras = camera_predictor(reshaped_image_ordered[0], batch_size=batch_size)['pred_cameras']
 
         R = pred_cameras.R
         abs_T = pred_cameras.T
@@ -284,14 +284,14 @@ def generate_rank_by_dino(reshaped_image, camera_predictor, query_frame_num, ima
     rgbs = F.interpolate(
         reshaped_image,
         (image_size, image_size),
-        mode="bilinear",
+        mode='bilinear',
         align_corners=True,
     )
     rgbs = camera_predictor._resnet_normalize_image(rgbs)
 
     # Get the image features (patch level)
     frame_feat = camera_predictor.backbone(rgbs, is_training=True)
-    frame_feat = frame_feat["x_norm_patchtokens"]
+    frame_feat = frame_feat['x_norm_patchtokens']
     frame_feat_norm = F.normalize(frame_feat, p=2, dim=1)
 
     # Compute the similiarty matrix
@@ -318,7 +318,7 @@ def generate_rank_by_dino(reshaped_image, camera_predictor, query_frame_num, ima
     return fps_idx
 
 
-def visual_query_points(images, query_index, query_points, save_name="image_cv2.png"):
+def visual_query_points(images, query_index, query_points, save_name='image_cv2.png'):
     """
     Processes an image by converting it to BGR color space, drawing circles at specified points,
     and saving the image to a file.
@@ -343,19 +343,19 @@ def visual_query_points(images, query_index, query_points, save_name="image_cv2.
 
 
 def read_array(path):
-    with open(path, "rb") as fid:
-        width, height, channels = np.genfromtxt(fid, delimiter="&", max_rows=1, usecols=(0, 1, 2), dtype=int)
+    with open(path, 'rb') as fid:
+        width, height, channels = np.genfromtxt(fid, delimiter='&', max_rows=1, usecols=(0, 1, 2), dtype=int)
         fid.seek(0)
         num_delimiter = 0
         byte = fid.read(1)
         while True:
-            if byte == b"&":
+            if byte == b'&':
                 num_delimiter += 1
                 if num_delimiter >= 3:
                     break
             byte = fid.read(1)
         array = np.fromfile(fid, np.float32)
-    array = array.reshape((width, height, channels), order="F")
+    array = array.reshape((width, height, channels), order='F')
     return np.transpose(array, (1, 0, 2)).squeeze()
 
 
@@ -373,20 +373,20 @@ def write_array(array, path):
     else:
         assert False
 
-    with open(path, "w") as fid:
-        fid.write(str(width) + "&" + str(height) + "&" + str(channels) + "&")
+    with open(path, 'w') as fid:
+        fid.write(str(width) + '&' + str(height) + '&' + str(channels) + '&')
 
-    with open(path, "ab") as fid:
+    with open(path, 'ab') as fid:
         if len(array.shape) == 2:
             array_trans = np.transpose(array, (1, 0))
         elif len(array.shape) == 3:
             array_trans = np.transpose(array, (1, 0, 2))
         else:
             assert False
-        data_1d = array_trans.reshape(-1, order="F")
+        data_1d = array_trans.reshape(-1, order='F')
         data_list = data_1d.tolist()
-        endian_character = "<"
-        format_char_sequence = "".join(["f"] * len(data_list))
+        endian_character = '<'
+        format_char_sequence = ''.join(['f'] * len(data_list))
         byte_data = struct.pack(endian_character + format_char_sequence, *data_list)
         fid.write(byte_data)
 
@@ -432,8 +432,8 @@ def create_video_with_reprojections(
     sparse_point,
     original_images=None,
     draw_radius=3,
-    cmap="gist_rainbow",
-    color_mode="dis_to_center",
+    cmap='gist_rainbow',
+    color_mode='dis_to_center',
 ):
     """
     Generates a list of images with reprojections of 3D points onto 2D images.
@@ -453,21 +453,21 @@ def create_video_with_reprojections(
     Returns:
         list: List of images with drawn circles.
     """
-    print("Generating reprojection images")
+    print('Generating reprojection images')
 
     video_size_rev = video_size[::-1]
     colormap = matplotlib.colormaps.get_cmap(cmap)
 
     points3D = np.array([point.xyz for point in reconstruction.points3D.values()])
 
-    if color_mode == "dis_to_center":
+    if color_mode == 'dis_to_center':
         median_point = np.median(points3D, axis=0)
         distances = np.linalg.norm(points3D - median_point, axis=1)
         min_dis, max_dis = distances.min(), np.percentile(distances, 95)
-    elif color_mode == "dis_to_origin":
+    elif color_mode == 'dis_to_origin':
         distances = np.linalg.norm(points3D, axis=1)
         min_dis, max_dis = distances.min(), distances.max()
-    elif color_mode == "point_order":
+    elif color_mode == 'point_order':
         max_point3D_idx = max(reconstruction.point3D_ids())
     else:
         raise NotImplementedError(f"Color mode '{color_mode}' is not implemented.")
@@ -485,15 +485,15 @@ def create_video_with_reprojections(
         uvs, uv_depth = uvds[:, :2], uvds[:, -1]
         uvs_int = np.round(uvs).astype(int)
 
-        if color_mode == "dis_to_center":
+        if color_mode == 'dis_to_center':
             point3D_xyz = np.array(sparse_point[img_basename])[:, :3]
             dis = np.linalg.norm(point3D_xyz - median_point, axis=1)
             color_indices = (dis - min_dis) / (max_dis - min_dis)  # 0-1
-        elif color_mode == "dis_to_origin":
+        elif color_mode == 'dis_to_origin':
             point3D_xyz = np.array(sparse_point[img_basename])[:, :3]
             dis = np.linalg.norm(point3D_xyz, axis=1)
             color_indices = (dis - min_dis) / (max_dis - min_dis)  # 0-1
-        elif color_mode == "point_order":
+        elif color_mode == 'point_order':
             point3D_idxes = np.array(sparse_point[img_basename])[:, -1]
             color_indices = point3D_idxes / max_point3D_idx
 
@@ -532,7 +532,7 @@ def create_video_with_reprojections(
 
         img_with_circles_list.append(img_with_circles)
 
-    print("Finished generating reprojection images")
+    print('Finished generating reprojection images')
     return img_with_circles_list
 
 
@@ -546,15 +546,15 @@ def save_video_with_reprojections(output_path, img_with_circles_list, video_size
         video_size (tuple): Size of the video (width, height).
         fps (int, optional): Frames per second for the video. Defaults to 1.
     """
-    print("Saving video with reprojections")
+    print('Saving video with reprojections')
 
-    video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter.fourcc(*"mp4v"), fps, video_size)
+    video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter.fourcc(*'mp4v'), fps, video_size)
 
     for img_with_circles in img_with_circles_list:
         video_writer.write(img_with_circles)
 
     video_writer.release()
-    print("Finished saving video with reprojections")
+    print('Finished saving video with reprojections')
 
 
 def create_depth_map_visual(depth_map, raw_img, output_filename):
@@ -563,7 +563,7 @@ def create_depth_map_visual(depth_map, raw_img, output_filename):
     depth_map_visual = depth_map_visual.astype(np.uint8)
 
     # Get the colormap
-    cmap = matplotlib.colormaps.get_cmap("Spectral_r")
+    cmap = matplotlib.colormaps.get_cmap('Spectral_r')
 
     # Apply the colormap and convert to uint8
     depth_map_visual = (cmap(depth_map_visual)[:, :, :3] * 255)[:, :, ::-1].astype(np.uint8)
@@ -586,10 +586,10 @@ def extract_dense_depth_maps(depth_model, image_paths, original_images=None):
     Note that the monocular depth model outputs disp instead of real depth map
     """
 
-    print("Extracting dense depth maps")
+    print('Extracting dense depth maps')
     disp_dict = {}
 
-    for idx in track(range(len(image_paths)), description="Predicting monocular depth maps"):
+    for idx in track(range(len(image_paths)), description='Predicting monocular depth maps'):
         img_fname = image_paths[idx]
         basename = os.path.basename(img_fname)
 
@@ -604,7 +604,7 @@ def extract_dense_depth_maps(depth_model, image_paths, original_images=None):
 
         disp_dict[basename] = disp_map
 
-    print("Monocular depth maps complete. Depth alignment to be conducted.")
+    print('Monocular depth maps complete. Depth alignment to be conducted.')
     return disp_dict
 
 
@@ -625,11 +625,11 @@ def align_dense_depth_maps(
     unproj_dense_points3D: dict[str, Any] | None = {}
     fname_to_id = {reconstruction.images[imgid].name: imgid for imgid in reconstruction.images}
 
-    for img_basename in track(sparse_depth, description="Load monocular depth and Align"):
+    for img_basename in track(sparse_depth, description='Load monocular depth and Align'):
         sparse_uvd = np.array(sparse_depth[img_basename])
 
         if len(sparse_uvd) <= 0:
-            raise ValueError("Too few points for depth alignment")
+            raise ValueError('Too few points for depth alignment')
 
         disp_map = disp_dict[img_basename]
 
@@ -662,14 +662,14 @@ def align_dense_depth_maps(
         ransac_thres = np.median(y) / thres_ratio
 
         if ransac_thres <= 0:
-            raise ValueError("Ill-posed scene for depth alignment")
+            raise ValueError('Ill-posed scene for depth alignment')
 
         ransac = RANSACRegressor(
             LinearRegression(),
             min_samples=2,
             residual_threshold=ransac_thres,
             max_trials=20000,
-            loss="squared_error",
+            loss='squared_error',
         )
         ransac.fit(X, y)
         scale = ransac.estimator_.coef_[0]
@@ -715,7 +715,7 @@ def align_dense_depth_maps(
             unproject_points = pycam.cam_from_img(sampled_points2d)
             unproject_points_homo = np.hstack((unproject_points, np.ones((unproject_points.shape[0], 1))))
             unproject_points_withz = unproject_points_homo * depth_values.reshape(-1, 1)
-            unproject_points_world = pyimg.cam_from_world.inverse() * unproject_points_withz
+            unproject_points_world = pyimg.cam_from_world().inverse() * unproject_points_withz
 
             rgb_image = original_images[img_basename] / 255.0
             rgb = rgb_image.reshape(-1, 3)
@@ -763,7 +763,7 @@ def generate_grid_samples(rect, N=None, pixel_interval=None):
     y_coords = torch.linspace(topleft_y, bottomright_y, num_samples_y, device=rect.device)
 
     # Create a meshgrid of x and y coordinates
-    grid_x, grid_y = torch.meshgrid(x_coords, y_coords, indexing="ij")
+    grid_x, grid_y = torch.meshgrid(x_coords, y_coords, indexing='ij')
 
     # Flatten the grids and stack them to create the final tensor of shape (N, 2)
     sampled_points = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=-1)
