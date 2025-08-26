@@ -516,7 +516,7 @@ class VideoRunner(VGGSfMRunner):
         assert self.intrinsics is not None, 'Intrinsics must be set before reconstruction_to_dicts'
         for image_id, image in reconstruction.images.items():
             self.frame_dict[image_id]['extri'] = torch.tensor(
-                image.cam_from_world().matrix(),
+                image.cam_from_world.matrix(),
                 dtype=self.intrinsics.dtype,
             )
             self.frame_dict[image_id]['visible_points'] = []
@@ -1092,9 +1092,7 @@ class VideoRunner(VGGSfMRunner):
     def update_dicts_by_reconstruction(self, reconstruction, start_idx, end_idx):
         # Update dicts by reconstruction
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]['extri'] = torch.tensor(
-                image.cam_from_world().matrix(), dtype=reconstruction.dtype
-            )
+            self.frame_dict[image_id]['extri'] = torch.tensor(image.cam_from_world.matrix(), dtype=reconstruction.dtype)
 
         for point3D_id in sorted(self.point_dict.keys()):
             pycolmap_point3D_id = point3D_id + 1

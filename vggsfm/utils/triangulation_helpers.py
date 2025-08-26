@@ -298,7 +298,7 @@ def project_3D_points(
         torch.Tensor: Transformed 2D points of shape BxNx2.
     """
 
-    with torch.amp.autocast(device_type='cuda', dtype=torch.double):
+    with torch.amp.autocast(device_type='cuda', dtype=torch.float64):
         B = extrinsics.shape[0]  # Batch size, i.e., number of cameras
         points3D_homogeneous = torch.cat([points3D, torch.ones_like(points3D[..., 0:1])], dim=1)  # Nx4
         # Reshape for batch processing

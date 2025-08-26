@@ -715,7 +715,7 @@ def align_dense_depth_maps(
             unproject_points = pycam.cam_from_img(sampled_points2d)
             unproject_points_homo = np.hstack((unproject_points, np.ones((unproject_points.shape[0], 1))))
             unproject_points_withz = unproject_points_homo * depth_values.reshape(-1, 1)
-            unproject_points_world = pyimg.cam_from_world().inverse() * unproject_points_withz
+            unproject_points_world = pyimg.cam_from_world.inverse() * unproject_points_withz
 
             rgb_image = original_images[img_basename] / 255.0
             rgb = rgb_image.reshape(-1, 3)

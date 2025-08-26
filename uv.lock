@@ -981,11 +981,11 @@ wheels = [
 
 [[package]]
 name = "narwhals"
-version = "2.1.2"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/37/f0/b0550d9b84759f4d045fd43da2f811e8b23dc2001e38c3254456da7f3adb/narwhals-2.1.2.tar.gz", hash = "sha256:afb9597e76d5b38c2c4b7c37d27a2418b8cc8049a66b8a5aca9581c92ae8f8bf", size = 533772, upload-time = "2025-08-15T08:24:50.916Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/8f/6b3d8c19540eaaa50778a8bbbe54e025d3f93aca6cdd5a4de3044c36f83c/narwhals-2.2.0.tar.gz", hash = "sha256:f6a34f2699acabe2c17339c104f0bec28b9f7a55fbc7f8d485d49bea72d12b8a", size = 547070, upload-time = "2025-08-25T07:51:58.904Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/01/824fff6789ce92a53242d24b6f5f3a982df2f610c51020f934bf878d2a99/narwhals-2.1.2-py3-none-any.whl", hash = "sha256:136b2f533a4eb3245c54254f137c5d14cef5c4668cff67dc6e911a602acd3547", size = 392064, upload-time = "2025-08-15T08:24:48.788Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/54/1ecca75e51d7da8ca53d1ffa8636ef9077a6eaa31f43ade71360b3e6449a/narwhals-2.2.0-py3-none-any.whl", hash = "sha256:2b5e3d61a486fa4328c286b0c8018b3e781a964947ff725d66ba12f6d5ca3d2a", size = 401021, upload-time = "2025-08-25T07:51:56.97Z" },
 ]
 
 [[package]]
@@ -1459,24 +1459,24 @@ wheels = [
 
 [[package]]
 name = "pycolmap"
-version = "3.12.4"
+version = "3.12.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/d3/5fb3b12a865a6bb36a32c91c6121eb1f979dbcd724c5f02894164d8884ce/pycolmap-3.12.4-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:72ba2094413b2aeb4ce0763bf9ab55465e11e3c28fcbfdd598bd27ebdb6a9505", size = 16081876, upload-time = "2025-08-05T12:06:47.437Z" },
-    { url = "https://files.pythonhosted.org/packages/5d/12/235bcada827c2f4960c99552190dce0c37b743593cddcae6f87424369c5a/pycolmap-3.12.4-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:85ba8e81cfc2b412bdb896f4ef5ffa08475fc7597bb5ae512bd48e391d0854dc", size = 14146488, upload-time = "2025-08-05T12:06:50.372Z" },
-    { url = "https://files.pythonhosted.org/packages/19/49/0e359b317a5620abb82ec29d692496ef0f513e03e4cb81fddef4154c21d0/pycolmap-3.12.4-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:8ad77a377fc7fd75e14113c6103f168c88e24225d42f01b95d26a898a2727e34", size = 19935363, upload-time = "2025-08-05T12:06:53Z" },
-    { url = "https://files.pythonhosted.org/packages/09/06/11782d01f59f47da93a808fcbabad1721c485be663cdd6b26576815c5c23/pycolmap-3.12.4-cp310-cp310-win_amd64.whl", hash = "sha256:45a9efbbda6c1ab85c167456471b237aff7380d87f636acdce13a4f68cd22219", size = 18343260, upload-time = "2025-08-05T12:06:56.567Z" },
-    { url = "https://files.pythonhosted.org/packages/95/6d/245812f7dce9cd40df1c5cbb3e4507a4ff76fb01436419fa6152e0bf793e/pycolmap-3.12.4-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:f06558b4a845371e62d927eeb44a3bd9b89ccd3fc2c41a2d333a8825d9eeb360", size = 16083030, upload-time = "2025-08-05T12:06:58.918Z" },
-    { url = "https://files.pythonhosted.org/packages/1b/98/88e2be8a91a88f21e251cb5ca9d0282e56c54bd0a0049983a8f1ee43ad95/pycolmap-3.12.4-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:99a9595afefc2c498e9f35ed9fb44605732d155358b10acbd45b61e6b4c79055", size = 14147467, upload-time = "2025-08-05T12:07:01.557Z" },
-    { url = "https://files.pythonhosted.org/packages/d3/2b/fba31c98cfa44af74b9e8d9cd98a533c6e37583904e46d70c4f73f41e878/pycolmap-3.12.4-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:2b75a3b8afc5885535fcf54be4ece8a87bac5bf45722f157545da0e319ebdef1", size = 19934941, upload-time = "2025-08-05T12:07:03.932Z" },
-    { url = "https://files.pythonhosted.org/packages/60/8a/73c0babed669f38529666657c44a8a061e8b508b0dae0bb23d8cbe423924/pycolmap-3.12.4-cp311-cp311-win_amd64.whl", hash = "sha256:27d9922a748e83af02a6f034309ada17281920f7a28829dfa97f220e05bb4479", size = 18343095, upload-time = "2025-08-05T12:07:06.352Z" },
-    { url = "https://files.pythonhosted.org/packages/da/f7/a29aa7351891e43e42f87595f92ab0b454ce0bf4baf1fd06bc7ace3aa1d4/pycolmap-3.12.4-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:8845404df2cfb9430fb299d44f9a5a402c9a287746a24f5c3a30fbb28eab7dc4", size = 16155654, upload-time = "2025-08-05T12:07:08.673Z" },
-    { url = "https://files.pythonhosted.org/packages/18/fa/f6aaa4dffe47ecf7baf3ecee78d3905587cb27431cc28c4b43eea4fe8157/pycolmap-3.12.4-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:679bd6d6a9f7fd92fde51aa83b6ecf34dfbac1508d7c3c2f1030baab3bef9b67", size = 14176272, upload-time = "2025-08-05T12:07:11.352Z" },
-    { url = "https://files.pythonhosted.org/packages/51/d3/593a1754bee4a24b0633bce7729dfd4c1568f16ec35150ddc607ff41bdb7/pycolmap-3.12.4-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:64916cd198b696ecc331e27ddcea33aa1637f7361a7c8a7a6f439f031b7f9f71", size = 19949241, upload-time = "2025-08-05T12:07:14.014Z" },
-    { url = "https://files.pythonhosted.org/packages/c5/d3/132822a64af3d4548c48145932d7d7714e1356f137bfa8200bace53fe527/pycolmap-3.12.4-cp312-cp312-win_amd64.whl", hash = "sha256:55c2b919c647b0c47f86564339c62dcc114a8c999316405389e3407c494573e4", size = 18357631, upload-time = "2025-08-05T12:07:16.468Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/1a/6be18145dfbaf7eef211cc4b98e1b9d8e18a9f61face3025e1ece81bf1d2/pycolmap-3.12.5-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:467136fe52962f802566a11abf26d4460f2264c9d5769e2e13191b5e6aa2335c", size = 16091014, upload-time = "2025-08-22T11:55:45.865Z" },
+    { url = "https://files.pythonhosted.org/packages/21/e1/6421b5fb12c95b0d32f3e4121ef430bedce76d9902aa2c0f3dcf9441e47f/pycolmap-3.12.5-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:e2b109dd9873789bf96828328e53c49501dbb74278d41ddf9b1bff3ca8547ea3", size = 14153486, upload-time = "2025-08-22T11:55:48.631Z" },
+    { url = "https://files.pythonhosted.org/packages/21/79/0fe94f81013fb6deeaba0737f8c8655f29e5961159dad175defc65197bd6/pycolmap-3.12.5-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:4bc98f31e1de5edb82b4f31173717fcab19c99edd56d93e4a69e6683457d4ac1", size = 19950443, upload-time = "2025-08-22T11:55:51.254Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/80/d9a5fd9bde5413323e2a6fbacddc3fa1211d1c98a9e75d8db7cd99a759b2/pycolmap-3.12.5-cp310-cp310-win_amd64.whl", hash = "sha256:d4c673bc3c62843e11a0ebff6906d6f06aba2045566b92f77d96bf35233dd77c", size = 18355257, upload-time = "2025-08-22T11:55:54.043Z" },
+    { url = "https://files.pythonhosted.org/packages/61/0c/1f5dc39d3e9c90f536e8d24ef1229a3412070224746383f672ed4eafcdaa/pycolmap-3.12.5-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:a01e023924d6b2ac20028f1ec4ae74e75291534bde601d33161b4735dc42b887", size = 16092614, upload-time = "2025-08-22T11:55:56.222Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/72/bef2e95763feec0721478f8b6f445d10f4f9db59ecf03cc3101afe021dff/pycolmap-3.12.5-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:d97ddc30d598761d9d39961a94dddf86421a9624c14f16f6b14518b97ceedc8c", size = 14155504, upload-time = "2025-08-22T11:55:58.417Z" },
+    { url = "https://files.pythonhosted.org/packages/88/c5/f391d00120e8784a2043af3e2d8b423476ddafbf03519a2b5e405403bb2c/pycolmap-3.12.5-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:048c7e414770482c8b521f6e4de6c5806a29a57583fa21a3c4b4fccebd6c4f84", size = 19950427, upload-time = "2025-08-22T11:56:00.698Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/89/7ab120af0b5b44be702ba85dcc976b90beb82d5de356d757500a87cfddfe/pycolmap-3.12.5-cp311-cp311-win_amd64.whl", hash = "sha256:12b17456fe9614ce908a5b1bde84451dae681e99c1ad1acfece02c900ea00839", size = 18356769, upload-time = "2025-08-22T11:56:03.301Z" },
+    { url = "https://files.pythonhosted.org/packages/41/42/c3182cc3fac15fa30b1002a74f0907142db19479f7974a6d79e754bfc7e1/pycolmap-3.12.5-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:93a060b3be22224a2c02345959dc2839b2e0e4a238d7fddf4a1723cfd836cd8a", size = 16161271, upload-time = "2025-08-22T11:56:05.857Z" },
+    { url = "https://files.pythonhosted.org/packages/89/fb/c4e3c26e0935c56006d97ff9cb5423cc241d89f6fda7000336bbbeaea265/pycolmap-3.12.5-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:f6e5277c889842382c1374e9f6a74c998e6cf80e54443867d0df18724777d0fa", size = 14187533, upload-time = "2025-08-22T11:56:08.036Z" },
+    { url = "https://files.pythonhosted.org/packages/74/e1/b62ce6eda166ca65fa1c9b6525802dc6c5a007af2104030a6b4e36174b13/pycolmap-3.12.5-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:7a4de270d7823d5c1098d3cff9500ba11e3ac2215a78245f11145731df2e83fd", size = 19953421, upload-time = "2025-08-22T11:56:10.335Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/62/37f0c13bc4490a3db3a15dd1e3a396f8f6a20a32011ade0723987fd31d44/pycolmap-3.12.5-cp312-cp312-win_amd64.whl", hash = "sha256:98127279b183dd7e06a93d86e85e294483fef7c065465e473127c9ad65551bd3", size = 18371751, upload-time = "2025-08-22T11:56:13.201Z" },
 ]
 
 [[package]]
@@ -1919,15 +1919,15 @@ wheels = [
 
 [[package]]
 name = "starlette"
-version = "0.47.2"
+version = "0.47.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/57/d062573f391d062710d4088fa1369428c38d51460ab6fedff920efef932e/starlette-0.47.2.tar.gz", hash = "sha256:6ae9aa5db235e4846decc1e7b79c4f346adf41e9777aebeb49dfd09bbd7023d8", size = 2583948, upload-time = "2025-07-20T17:31:58.522Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/b9/cc3017f9a9c9b6e27c5106cc10cc7904653c3eec0729793aec10479dd669/starlette-0.47.3.tar.gz", hash = "sha256:6bc94f839cc176c4858894f1f8908f0ab79dfec1a6b8402f6da9be26ebea52e9", size = 2584144, upload-time = "2025-08-24T13:36:42.122Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl", hash = "sha256:c5847e96134e5c5371ee9fac6fdf1a67336d5815e09eb2a01fdb57a351ef915b", size = 72984, upload-time = "2025-07-20T17:31:56.738Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/fd/901cfa59aaa5b30a99e16876f11abe38b59a1a2c51ffb3d7142bb6089069/starlette-0.47.3-py3-none-any.whl", hash = "sha256:89c0778ca62a76b826101e7c709e70680a1699ca7da6b44d38eb0a7e61fe4b51", size = 72991, upload-time = "2025-08-24T13:36:40.887Z" },
 ]
 
 [[package]]
@@ -2215,11 +2215,11 @@ wheels = [
 
 [[package]]
 name = "typing-extensions"
-version = "4.14.1"
+version = "4.15.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/98/5a/da40306b885cc8c09109dc2e1abd358d5684b1425678151cdaed4731c822/typing_extensions-4.14.1.tar.gz", hash = "sha256:38b39f4aeeab64884ce9f74c94263ef78f3c22467c8724005483154c26648d36", size = 107673, upload-time = "2025-07-04T13:28:34.16Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/94/1a15dd82efb362ac84269196e94cf00f187f7ed21c242792a923cdb1c61f/typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466", size = 109391, upload-time = "2025-08-25T13:49:26.313Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/00/d631e67a838026495268c2f6884f3711a15a9a2a96cd244fdaea53b823fb/typing_extensions-4.14.1-py3-none-any.whl", hash = "sha256:d1e1e3b58374dc93031d6eda2420a48ea44a36c2b4766a4fdeb3710755731d76", size = 43906, upload-time = "2025-07-04T13:28:32.743Z" },
+    { url = "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548", size = 44614, upload-time = "2025-08-25T13:49:24.86Z" },
 ]
 
 [[package]]
@@ -2326,8 +2326,8 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.11.0.86,<5.0.0.0" },
     { name = "plotly", specifier = ">=6.1.2,<7.0.0" },
     { name = "poselib", specifier = ">=2.0.4,<3.0.0" },
-    { name = "pyceres", specifier = ">=2.5" },
-    { name = "pycolmap", specifier = ">=3.12.4" },
+    { name = "pyceres", specifier = ">=2.5,<2.6" },
+    { name = "pycolmap", specifier = ">=3.12.0,<3.13.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
     { name = "scikit-learn", specifier = ">=1.7.0,<2.0.0" },
     { name = "scipy", specifier = ">=1.15.3,<2.0.0" },

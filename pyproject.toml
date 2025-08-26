@@ -29,8 +29,8 @@ dependencies = [
     "rich (>=14.0.0,<15.0.0)",
     "torch (>=2.6.0,<2.7.0)",
     "torchvision (>=0.21.0,<0.22.0)",
-    "pycolmap>=3.12.4",
-    "pyceres>=2.5",
+    "pycolmap (>=3.12.0,<3.13.0)",
+    "pyceres (>=2.5,<2.6)",
     "lightglue",
 ]
 

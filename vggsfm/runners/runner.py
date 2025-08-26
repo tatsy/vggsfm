@@ -86,8 +86,9 @@ class VGGSfMRunner(object):
             raise NotImplementedError(f'dtype {cfg.mixed_precision} is not supported now')
 
         self.camera_type = {
-            'SIMPLE_RADIAL': CameraModelId.SIMPLE_RADIAL,
+            'PINHOLE': CameraModelId.PINHOLE,
             'SIMPLE_PINHOLE': CameraModelId.SIMPLE_PINHOLE,
+            'SIMPLE_RADIAL': CameraModelId.SIMPLE_RADIAL,
         }.get(cfg.camera_type, None)
 
         if self.camera_type is None:
@@ -504,16 +505,17 @@ class VGGSfMRunner(object):
                 points3D = torch.cat([points3D, additional_points3D], dim=0)
                 points3D_rgb = torch.cat([points3D_rgb, additional_points3D_rgb], dim=0)
 
-        # if self.cfg.filter_invalid_frame:
-        #     extrinsics_opencv = extrinsics_opencv[valid_frame_mask]
-        #     intrinsics_opencv = intrinsics_opencv[valid_frame_mask]
-        #     if extra_params is not None:
-        #         extra_params = extra_params[valid_frame_mask]
-        #     invalid_ids = torch.nonzero(~valid_frame_mask).squeeze(1)
-        #     invalid_ids = invalid_ids.cpu().numpy().tolist()
-        #     if len(invalid_ids) > 0:
-        #         for invalid_id in invalid_ids:
-        #             reconstruction.deregister_image(invalid_id)
+        if self.cfg.filter_invalid_frame:
+            extrinsics_opencv = extrinsics_opencv[valid_frame_mask]
+            intrinsics_opencv = intrinsics_opencv[valid_frame_mask]
+            if extra_params is not None:
+                extra_params = extra_params[valid_frame_mask]
+
+            invalid_ids = torch.nonzero(~valid_frame_mask).squeeze(1)
+            invalid_ids = invalid_ids.cpu().numpy().tolist()
+            if len(invalid_ids) > 0:
+                for invalid_id in invalid_ids:
+                    reconstruction.deregister_image(invalid_id)
 
         img_size = images.shape[-1]  # H or W, the same for square
 
@@ -679,7 +681,7 @@ class VGGSfMRunner(object):
                 pyimg = reconstruction.images[track_element.image_id]
                 pycam = reconstruction.cameras[pyimg.camera_id]
                 img_name = pyimg.name
-                projection = pyimg.cam_from_world() * pt3D.xyz
+                projection = pyimg.cam_from_world * pt3D.xyz
                 depth = projection[-1]
                 # NOTE: uv here cooresponds to the (x, y)
                 # at the original image coordinate
@@ -854,13 +856,13 @@ class VGGSfMRunner(object):
         for fidx in range(len(reconstruction.images)):
             # Reshaped the padded&resized image to the original size
             # Rename the images to the original names
-            pyimage = reconstruction.image(fidx)
-            pycamera = reconstruction.camera(pyimage.camera_id)
-            pyimage.name = image_paths[fidx]
+            image = reconstruction.image(fidx)
+            camera = reconstruction.camera(image.camera_id)
+            image.name = image_paths[fidx]
 
             if rescale_camera:
                 # Rescale the camera parameters
-                pred_params = copy.deepcopy(pycamera.params)
+                pred_params = copy.deepcopy(camera.params)
                 real_image_size = crop_params[0, fidx][:2]
                 resize_ratio = real_image_size.max() / img_size
                 real_focal = resize_ratio * pred_params[0]
@@ -868,16 +870,16 @@ class VGGSfMRunner(object):
 
                 pred_params[0] = real_focal
                 pred_params[1:3] = real_pp
-                pycamera.params = pred_params
-                pycamera.width = real_image_size[0]
-                pycamera.height = real_image_size[1]
+                camera.params = pred_params
+                camera.width = real_image_size[0]
+                camera.height = real_image_size[1]
 
                 resize_ratio = resize_ratio.item()
 
             if shift_point2d_to_original_res:
                 # Also shift the point2D to original resolution
                 top_left = crop_params[0, fidx][-4:-2].abs().cpu().numpy()
-                for point2D in pyimage.points2D:
+                for point2D in image.points2D:
                     point2D.xy = (point2D.xy - top_left) * resize_ratio
 
             if shared_camera:

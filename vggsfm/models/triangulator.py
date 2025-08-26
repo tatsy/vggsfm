@@ -5,13 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import logging
+
 import numpy as np
 import torch
 import pycolmap
 import torch.nn as nn
 from pycolmap import CameraModelId
 
-# #####################
 from vggsfm.models.utils import get_EFP, sample_features4d
 from vggsfm.utils.triangulation import (
     init_BA,
@@ -238,12 +239,12 @@ class Triangulator(nn.Module):
                         shared_camera=shared_camera,
                         camera_type=camera_type,
                     )
-                    print(f'Finished robust refine {refine_idx} ({len(points3D)} points)')
+                    logging.info(f'Finished robust refine {refine_idx} ({len(points3D)} points)')
 
             ba_options = pycolmap.BundleAdjustmentOptions()
             ba_options.print_summary = False
 
-            print(f'Running iterative BA by {BA_iters} times')
+            logging.info(f'Running iterative BA by {BA_iters} times')
             for BA_iter in range(BA_iters):
                 if BA_iter == (BA_iters - 1):
                     ba_options.print_summary = True
@@ -277,7 +278,7 @@ class Triangulator(nn.Module):
                     camera_type=camera_type,
                 )
 
-                print(f'Finished iterative BA {BA_iter} ({len(points3D)} points)')
+                logging.info(f'Finished iterative BA {BA_iter} ({len(points3D)} points)')
 
                 max_reproj_error = max_reproj_error // 2
                 if max_reproj_error <= 1:
@@ -292,6 +293,7 @@ class Triangulator(nn.Module):
                 intrinsics[:, 0, 0] >= 0.1 * scale,
                 intrinsics[:, 0, 0] <= 30 * scale,
             )
+
             if extra_params is not None:
                 valid_extra_params_mask = (extra_params.abs() <= 1.0).all(-1)
                 valid_param_mask = torch.logical_and(valid_param_mask, valid_extra_params_mask)
@@ -311,14 +313,12 @@ class Triangulator(nn.Module):
                 sum_rgb = (BA_inlier_masks.float()[..., None] * valid_track_rgb).sum(dim=0)
                 points3D_rgb = sum_rgb / BA_inlier_masks.sum(dim=0)[:, None]
 
-                if len(reconstruction.point3D_ids()) > 0 and points3D_rgb.shape[0] == max(reconstruction.point3D_ids()):
+                if len(points3D) > 0 and points3D_rgb.shape[0] == max(reconstruction.point3D_ids()):
                     for point3D_id in reconstruction.points3D:
                         color_255 = points3D_rgb[point3D_id - 1].cpu().numpy() * 255
                         reconstruction.points3D[point3D_id].color = np.round(color_255).astype(np.uint8)
                 else:
-                    raise RuntimeError(
-                        'Cannot save point rgb colors to colmap reconstruction object. Please file an issue in github. '
-                    )
+                    raise RuntimeError('Cannot save point rgb colors to COLMAP reconstruction object.')
             else:
                 points3D_rgb = None
 

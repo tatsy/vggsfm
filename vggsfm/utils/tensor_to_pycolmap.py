@@ -4,14 +4,14 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 
 import numpy as np
 import torch
 import pycolmap
 from pycolmap import CameraModelId
 
-GLOBAL_RIG_ID = 10001
-GLOBAL_FRAME_ID = 20001
+GLOBAL_RIG_ID: int = 10001
 
 
 def batch_matrix_to_pycolmap(
@@ -21,10 +21,10 @@ def batch_matrix_to_pycolmap(
     tracks,
     masks,
     image_size,
-    max_points3D_val=3000,
-    shared_camera=False,
+    max_points3D_val: int = 3000,
+    shared_camera: bool = False,
     camera_type=CameraModelId.SIMPLE_PINHOLE,
-    extra_params=None,
+    extra_params: torch.Tensor | None = None,
 ) -> pycolmap.Reconstruction:
     """
     Convert Batched Pytorch Tensors to PyCOLMAP
@@ -50,6 +50,7 @@ def batch_matrix_to_pycolmap(
     intrinsics = intrinsics.detach().cpu().numpy()
 
     if extra_params is not None:
+        assert isinstance(extra_params, torch.Tensor)
         extra_params = extra_params.detach().cpu().numpy()
 
     tracks = tracks.detach().cpu().numpy()
@@ -60,93 +61,106 @@ def batch_matrix_to_pycolmap(
     # Reconstruction object, following the format of PyCOLMAP/COLMAP
     reconstruction = pycolmap.Reconstruction()
 
+    # Only add 3D points that have sufficient 2D points
     inlier_num = masks.sum(0)
     valid_mask = inlier_num >= 2  # a track is invalid if without two inliers
     valid_idx = np.nonzero(valid_mask)[0]
-
-    # Only add 3D points that have sufficient 2D points
     for vidx in valid_idx:
-        reconstruction.add_point3D(points3d[vidx], pycolmap.Track(), np.zeros(3, dtype=np.uint8))
+        reconstruction.add_point3D(
+            points3d[vidx],
+            pycolmap.Track(),
+            np.zeros(3, dtype=np.uint8),
+        )
 
     num_points3D = len(valid_idx)
 
     # set rig
-    rig = pycolmap.Rig()
-    rig.rig_id = GLOBAL_RIG_ID
-    frame = pycolmap.Frame()
-    frame.rig_id = rig.rig_id
-    frame.frame_id = GLOBAL_FRAME_ID
+    rig = pycolmap.Rig(rig_id=GLOBAL_RIG_ID)
+    reconstruction.add_rig(rig)
 
     # frame idx
-    first_camera = True
-    ref_pose = None
+    camera = None
     for fidx in range(N):
         # set camera
-        if camera_type == CameraModelId.SIMPLE_RADIAL:
-            assert extra_params is not None
-            params = np.array(
-                [
-                    intrinsics[fidx][0, 0].item(),
-                    intrinsics[fidx][0, 2].item(),
-                    intrinsics[fidx][1, 2].item(),
-                    extra_params[fidx][0].item(),
-                ],
-                dtype=np.float64,
-            )
-        elif camera_type == CameraModelId.SIMPLE_PINHOLE:
-            params = np.array(
-                [
-                    intrinsics[fidx][0, 0].item(),
-                    intrinsics[fidx][0, 2].item(),
-                    intrinsics[fidx][1, 2].item(),
-                ],
-                dtype=np.float64,
-            )
-        else:
-            raise ValueError(f'Camera type {camera_type} is not supported yet')
+        if (camera is None) or (rig is None) or (not shared_camera):
+            if camera_type == CameraModelId.SIMPLE_RADIAL:
+                assert extra_params is not None
+                params = np.array(
+                    [
+                        intrinsics[fidx][0, 0].item(),
+                        intrinsics[fidx][0, 2].item(),
+                        intrinsics[fidx][1, 2].item(),
+                        extra_params[fidx][0].item(),
+                    ],
+                    dtype=np.float64,
+                )
+            elif camera_type == CameraModelId.PINHOLE:
+                params = np.array(
+                    [
+                        intrinsics[fidx][0, 0].item(),
+                        intrinsics[fidx][0, 1].item(),
+                        intrinsics[fidx][0, 2].item(),
+                        intrinsics[fidx][1, 2].item(),
+                    ],
+                    dtype=np.float64,
+                )
+            elif camera_type == CameraModelId.SIMPLE_PINHOLE:
+                params = np.array(
+                    [
+                        intrinsics[fidx][0, 0].item(),
+                        intrinsics[fidx][0, 2].item(),
+                        intrinsics[fidx][1, 2].item(),
+                    ],
+                    dtype=np.float64,
+                )
+            else:
+                raise ValueError(f'Camera type {camera_type} is not supported yet')
 
-        camera = pycolmap.Camera(
-            camera_id=fidx,
-            model=camera_type,
-            width=image_size[0],
-            height=image_size[1],
-            params=params,
+            camera = pycolmap.Camera(
+                camera_id=fidx,
+                model=camera_type,
+                width=image_size[0],
+                height=image_size[1],
+                params=params,
+            )
+
+            # add camera
+            reconstruction.add_camera(camera)
+
+            # set sensor
+            sensor_t = pycolmap.sensor_t()
+            sensor_t.id = camera.camera_id
+            sensor_t.type = pycolmap.SensorType.CAMERA
+
+            if reconstruction.rig(GLOBAL_RIG_ID).num_sensors() == 0:
+                reconstruction.rig(GLOBAL_RIG_ID).add_ref_sensor(sensor_t)
+            else:
+                reconstruction.rig(GLOBAL_RIG_ID).add_sensor(sensor_t, pycolmap.Rigid3d())
+
+        # set frame
+        pose = extrinsics[fidx].astype(np.float64)
+        cam_from_world = pycolmap.Rigid3d(pycolmap.Rotation3d(pose[:3, :3]), pose[:3, 3])
+
+        # set frame
+        frame = pycolmap.Frame(
+            frame_id=fidx,
+            rig_id=rig.rig_id,
         )
-
-        # add camera
-        reconstruction.add_camera(camera)
-
-        # associate the camera with sensor
-        sensor_t = pycolmap.sensor_t()
-        sensor_t.type = pycolmap.SensorType.CAMERA
-        sensor_t.id = camera.camera_id
-
-        if first_camera:
-            first_camera = False
-            rig.add_ref_sensor(sensor_t)
-            reconstruction.add_rig(rig)
-            reconstruction.add_frame(frame)
-            P = extrinsics[fidx].astype(np.float64)
-            ref_pose = pycolmap.Rigid3d(pycolmap.Rotation3d(P[:3, :3]), P[:3, 3])
-            reconstruction.frame(GLOBAL_FRAME_ID).rig_from_world = ref_pose
-        else:
-            P = extrinsics[fidx].astype(np.float64)
-            pose = pycolmap.Rigid3d(pycolmap.Rotation3d(P[:3, :3]), P[:3, 3])
-            relative_pose = pose * ref_pose.inverse()
-            reconstruction.rig(GLOBAL_RIG_ID).add_sensor(sensor_t, relative_pose)
 
         # set image
         image = pycolmap.Image(
             image_id=fidx,
-            name=f'image_{fidx}',
-            frame_id=GLOBAL_FRAME_ID,
+            name=f'image_{fidx:04d}',
+            frame_id=frame.frame_id,
             camera_id=camera.camera_id,
         )
-        reconstruction.frame(GLOBAL_FRAME_ID).add_data_id(image.data_id)
+        frame.add_data_id(image.data_id)
+        reconstruction.add_frame(frame)
+        reconstruction.frame(frame.frame_id).set_cam_from_world(camera.camera_id, cam_from_world)
 
+        # NOTE: point3D_id start by 1
         points2D_list = []
         point2D_idx = 0
-        # NOTE point3D_id start by 1
         for point3D_id in range(1, num_points3D + 1):
             original_track_idx = valid_idx[point3D_id - 1]
             if (reconstruction.point3D(point3D_id).xyz < max_points3D_val).all():
@@ -162,22 +176,26 @@ def batch_matrix_to_pycolmap(
                     track.add_element(fidx, point2D_idx)
                     point2D_idx += 1
 
-        assert point2D_idx == len(points2D_list)
-
         try:
             image.points2D = pycolmap.Point2DList(points2D_list)
+            registered = True
         except Exception as e:
-            print(f'frame {fidx} is out of BA: {e}')
+            logging.warning(f'frame {fidx} is out of BA: {e}')
+            registered = False
 
         reconstruction.add_image(image)
-        reconstruction.register_image(GLOBAL_FRAME_ID)
+
+        if registered:
+            reconstruction.register_image(image.frame_id)
+        else:
+            reconstruction.deregister_image(image.frame_id)
 
     return reconstruction
 
 
 def pycolmap_to_batch_matrix(
-    reconstruction,
-    device='cuda',
+    reconstruction: pycolmap.Reconstruction,
+    device: str = 'cuda',
     camera_type=CameraModelId.SIMPLE_PINHOLE,
 ):
     """
@@ -199,8 +217,9 @@ def pycolmap_to_batch_matrix(
 
     max_points3D_id = max(reconstruction.point3D_ids())
     points3D = np.zeros((max_points3D_id, 3), dtype=np.float64)
-    for point3D_id in reconstruction.points3D:
-        points3D[point3D_id - 1] = reconstruction.point3D(point3D_id).xyz
+    for i in range(num_points3D):
+        points3D[i] = reconstruction.point3D(i + 1).xyz
+
     points3D = torch.Tensor(points3D).to(device=device)
 
     extrinsics = []
@@ -209,25 +228,26 @@ def pycolmap_to_batch_matrix(
 
     for fidx in range(num_images):
         # Extract and append extrinsics
-        pyimg = reconstruction.image(fidx)
-        pycam = reconstruction.camera(pyimg.camera_id)
-        matrix = pyimg.cam_from_world().matrix()
+        img = reconstruction.image(fidx)
+        cam = reconstruction.camera(img.camera_id)
+        matrix = img.cam_from_world().matrix()
+
         assert isinstance(matrix, np.ndarray)
         extrinsics.append(matrix)
 
         # Extract and append intrinsics
-        calibration_matrix = pycam.calibration_matrix()
+        calibration_matrix = cam.calibration_matrix()
         assert isinstance(calibration_matrix, np.ndarray)
         intrinsics.append(calibration_matrix)
 
         if extra_params is not None:
-            extra_params.append(pycam.params[-1])
+            extra_params.append(cam.params[-1])
 
     # Convert lists to torch tensors
-    extrinsics = torch.Tensor(np.stack(extrinsics)).to(device=device)
-    intrinsics = torch.Tensor(np.stack(intrinsics)).to(device=device)
+    extrinsics = torch.Tensor(np.stack(extrinsics, axis=0)).to(device)
+    intrinsics = torch.Tensor(np.stack(intrinsics, axis=0)).to(device)
     if extra_params is not None:
-        extra_params = torch.Tensor(np.stack(extra_params)).to(device=device)
+        extra_params = torch.Tensor(np.stack(extra_params, axis=0)).to(device)
         extra_params = extra_params.unsqueeze(1)
 
     return points3D, extrinsics, intrinsics, extra_params

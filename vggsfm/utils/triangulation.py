@@ -243,6 +243,7 @@ def refine_pose(
 
     S, _, _ = extrinsics.shape
     _, P, _ = tracks.shape
+    device = tracks.device
 
     assert len(intrinsics) == S
     assert inlier.shape[0] == S
@@ -300,10 +301,10 @@ def refine_pose(
 
     scale = image_size.max()
 
-    pycamera = None
+    camera = None
 
     for ridx in range(S):
-        if pycamera is None or (not shared_camera):
+        if (camera is None) or (not shared_camera):
             if camera_type == CameraModelId.SIMPLE_RADIAL:
                 params = np.array(
                     [
@@ -311,6 +312,16 @@ def refine_pose(
                         intrinsics[ridx][0, 2].item(),
                         intrinsics[ridx][1, 2].item(),
                         extra_params[ridx][0].item(),
+                    ],
+                    dtype=np.float64,
+                )
+            elif camera_type == CameraModelId.PINHOLE:
+                params = np.array(
+                    [
+                        intrinsics[ridx][0, 0].item(),
+                        intrinsics[ridx][1, 1].item(),
+                        intrinsics[ridx][0, 2].item(),
+                        intrinsics[ridx][1, 2].item(),
                     ],
                     dtype=np.float64,
                 )
@@ -326,7 +337,7 @@ def refine_pose(
             else:
                 raise ValueError(f'Camera type {camera_type} is not supported yet')
 
-            pycamera = pycolmap.Camera(
+            camera = pycolmap.Camera(
                 camera_id=ridx,
                 model=camera_type,
                 width=image_size[0],
@@ -353,14 +364,14 @@ def refine_pose(
                 points2D,
                 points3D,
                 inlier_mask,
-                pycamera,
+                camera,
                 refoptions,
             )
 
             assert isinstance(answer, dict) and 'cam_from_world' in answer
             cam_from_world = answer['cam_from_world']
 
-            intri_mat = pycamera.calibration_matrix()
+            intri_mat = camera.calibration_matrix()
             focal = intri_mat[0, 0]
             if (focal < 0.1 * scale) or (focal > 30 * scale):
                 # invalid focal length
@@ -377,40 +388,48 @@ def refine_pose(
                 estanswer = pycolmap.estimate_and_refine_absolute_pose(
                     points2D[inlier_mask],
                     points3D[inlier_mask],
-                    pycamera,
+                    camera,
                     estoptions,
                     refoptions,
                 )
                 if estanswer is None:
                     estanswer = pycolmap.estimate_and_refine_absolute_pose(
-                        points2D, points3D, pycamera, estoptions, refoptions
+                        points2D,
+                        points3D,
+                        camera,
+                        estoptions,
+                        refoptions,
                     )
             else:
                 print(f'Warning! Estimating absolute poses by non visible matches for frame {ridx}')
                 estanswer = pycolmap.estimate_and_refine_absolute_pose(
-                    points2D, points3D, pycamera, estoptions, refoptions
+                    points2D,
+                    points3D,
+                    camera,
+                    estoptions,
+                    refoptions,
                 )
 
             if estanswer is not None:
                 cam_from_world = estanswer['cam_from_world']
 
         extri_mat = cam_from_world.matrix()
-        intri_mat = pycamera.calibration_matrix()
+        intri_mat = camera.calibration_matrix()
 
         refined_extrinsics.append(extri_mat)
         refined_intrinsics.append(intri_mat)
         if extra_params is not None:
-            refined_extra_params.append(pycamera.params[3])
+            refined_extra_params.append(camera.params[3])
 
     # get the optimized cameras
-    refined_extrinsics = np.stack(refined_extrinsics)
-    refined_intrinsics = np.stack(refined_intrinsics)
-    refined_extrinsics = torch.tensor(refined_extrinsics, device=tracks.device)
-    refined_intrinsics = torch.tensor(refined_intrinsics, device=tracks.device)
+    refined_extrinsics = np.stack(refined_extrinsics, axis=0)
+    refined_intrinsics = np.stack(refined_intrinsics, axis=0)
+    refined_extrinsics = torch.Tensor(refined_extrinsics).to(device)
+    refined_intrinsics = torch.Tensor(refined_intrinsics).to(device)
 
     if extra_params is not None:
-        refined_extra_params = np.stack(refined_extra_params)
-        refined_extra_params = torch.tensor(refined_extra_params, device=tracks.device)
+        refined_extra_params = np.stack(refined_extra_params, axis=0)
+        refined_extra_params = torch.Tensor(refined_extra_params).to(device)
         if len(refined_extra_params.shape) == 1:
             refined_extra_params = refined_extra_params[:, None]
 
@@ -438,12 +457,12 @@ def init_refine_pose(
     extra_params,
     inlier,
     points3D,
-    tracks,
+    tracks: torch.Tensor,
     valid_track_mask_init,
     image_size,
     init_idx,
-    max_reproj_error=12,
-    shared_camera=False,
+    max_reproj_error: int = 12,
+    shared_camera: bool = False,
     camera_type=CameraModelId.SIMPLE_PINHOLE,
 ):
     """
@@ -459,6 +478,7 @@ def init_refine_pose(
 
     S, _, _ = extrinsics.shape
     _, P, _ = tracks.shape
+    device = tracks.device
 
     assert len(intrinsics) == S
     assert inlier.shape[0] == (S - 1)
@@ -491,9 +511,9 @@ def init_refine_pose(
     refined_intrinsics = []
     refined_extra_params = [] if extra_params is not None else None
 
-    pycamera = None
+    camera = None
     for ridx in range(S):
-        if (pycamera is None) or (not shared_camera):
+        if (camera is None) or (not shared_camera):
             if camera_type == CameraModelId.SIMPLE_RADIAL:
                 params = np.array(
                     [
@@ -501,6 +521,16 @@ def init_refine_pose(
                         intrinsics[ridx][0, 2].item(),
                         intrinsics[ridx][1, 2].item(),
                         extra_params[ridx][0].item(),
+                    ],
+                    dtype=np.float64,
+                )
+            elif camera_type == CameraModelId.PINHOLE:
+                params = np.array(
+                    [
+                        intrinsics[ridx][0, 0].item(),
+                        intrinsics[ridx][1, 1].item(),
+                        intrinsics[ridx][0, 2].item(),
+                        intrinsics[ridx][1, 2].item(),
                     ],
                     dtype=np.float64,
                 )
@@ -516,7 +546,7 @@ def init_refine_pose(
             else:
                 raise ValueError(f'Camera type {camera_type} is not supported yet')
 
-            pycamera = pycolmap.Camera(
+            camera = pycolmap.Camera(
                 camera_id=ridx,
                 model=camera_type,
                 width=image_size[0],
@@ -528,9 +558,8 @@ def init_refine_pose(
             ref_options.refine_focal_length = False
             ref_options.refine_extra_params = False
 
-        P = extrinsics[ridx].detach().cpu().numpy()
-        P = P.astype(np.float64)
-        cam_from_world = pycolmap.Rigid3d(pycolmap.Rotation3d(P[:3, :3]), P[:3, 3])  # Rot and Trans
+        pose = extrinsics[ridx].detach().cpu().numpy()
+        cam_from_world = pycolmap.Rigid3d(pycolmap.Rotation3d(pose[:3, :3]), pose[:3, 3])  # Rot and Trans
         points2D = tracks2D[ridx]
         inlier_mask = inlier_absrefine[ridx]
 
@@ -544,7 +573,7 @@ def init_refine_pose(
                     points2D,
                     points3D,
                     inlier_mask,
-                    pycamera,
+                    camera,
                     ref_options,
                 )
                 cam_from_world = answer['cam_from_world']
@@ -552,18 +581,18 @@ def init_refine_pose(
                 print('This frame only has inliers:', inlier_mask.sum())
 
         extri_mat = cam_from_world.matrix()
-        intri_mat = pycamera.calibration_matrix()
+        intri_mat = camera.calibration_matrix()
         refined_extrinsics.append(extri_mat)
         refined_intrinsics.append(intri_mat)
 
         if extra_params is not None:
-            refined_extra_params.append(pycamera.params[3])
+            refined_extra_params.append(camera.params[3])
 
     # get the optimized cameras
-    refined_extrinsics = torch.Tensor(np.stack(refined_extrinsics)).type_as(tracks)
-    refined_intrinsics = torch.Tensor(np.stack(refined_intrinsics)).type_as(tracks)
+    refined_extrinsics = torch.Tensor(np.stack(refined_extrinsics)).to(device)
+    refined_intrinsics = torch.Tensor(np.stack(refined_intrinsics)).to(device)
     if extra_params is not None:
-        refined_extra_params = torch.Tensor(np.stack(refined_extra_params)).type_as(tracks)
+        refined_extra_params = torch.Tensor(np.stack(refined_extra_params)).to(device)
         if refined_extra_params.dim() == 1:
             refined_extra_params = refined_extra_params.unsqueeze(1)
 
