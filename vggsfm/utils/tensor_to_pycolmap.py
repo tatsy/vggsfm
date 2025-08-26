@@ -156,7 +156,7 @@ def batch_matrix_to_pycolmap(
         )
         frame.add_data_id(image.data_id)
         reconstruction.add_frame(frame)
-        reconstruction.frame(frame.frame_id).set_cam_from_world(camera.camera_id, cam_from_world)
+        reconstruction.frame(frame.frame_id).rig_from_world = cam_from_world
 
         # NOTE: point3D_id start by 1
         points2D_list = []

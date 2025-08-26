@@ -287,7 +287,7 @@ class Triangulator(nn.Module):
             scale = image_size.max()
             valid_param_mask = torch.logical_and(
                 intrinsics[:, 0, 0] >= 0.1 * scale,
-                intrinsics[:, 0, 0] <= 30 * scale,
+                intrinsics[:, 0, 0] <= 30.0 * scale,
             )
 
             if extra_params is not None:

@@ -74,7 +74,7 @@ class VGGSfMRunner(object):
             self.build_monocular_depth_model()
 
         # Set up mixed precision
-        assert cfg.mixed_precision in ('None', 'bf16', 'fp16')
+        assert cfg.mixed_precision in ('fp32', 'bf16', 'fp16', 'None')
         self.dtype = {
             'fp32': torch.float32,
             'bf16': torch.bfloat16,
@@ -353,6 +353,7 @@ class VGGSfMRunner(object):
             image_batch = images[:, i:end]
             fmaps_i = self.track_predictor.process_images_to_fmaps(image_batch)
             fmaps_for_tracker.append(fmaps_i)
+
         fmaps_for_tracker = torch.cat(fmaps_for_tracker, dim=1)
 
         # fmaps_for_tracker = self.track_predictor.process_images_to_fmaps(images)

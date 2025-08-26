@@ -16,6 +16,7 @@ import numpy as np
 import torch
 import pyceres
 import pycolmap
+from pycolmap import CameraModelId
 
 from vggsfm.utils.align import apply_transformation, align_camera_extrinsics
 from vggsfm.utils.utils import generate_grid_samples, average_camera_prediction
@@ -87,7 +88,7 @@ class VideoRunner(VGGSfMRunner):
             self.H = H
             self.W = W
 
-            self.image_size = torch.tensor([W, H], dtype=images.dtype, device=self.device)
+            self.image_size = torch.Tensor([W, H]).to(self.device)
 
             self.images = images
             self.masks = masks
@@ -227,7 +228,9 @@ class VideoRunner(VGGSfMRunner):
         # the images inside reconstruction is sorted by order
         # i.e., reconstruction.images[1] cooresponds to extrinsics[1]
         _, extrinsics, intrinsics, extra_params = pycolmap_to_batch_matrix(
-            reconstruction, device=self.device, camera_type=self.cfg.camera_type
+            reconstruction,
+            device=self.device,
+            camera_type=self.camera_type,
         )
 
         predictions['extrinsics_opencv'] = extrinsics
@@ -316,9 +319,8 @@ class VideoRunner(VGGSfMRunner):
         else:
             points3D_idx = pred['points3D_idx']
 
-        extrinsics = pred['extrinsics_opencv']
-
         # save them in cpu
+        extrinsics = pred['extrinsics_opencv']
         extrinsics = extrinsics.detach().cpu()
         for frame_idx in range(start_idx, end_idx):
             relative_frame_idx = frame_idx - start_idx
@@ -429,22 +431,22 @@ class VideoRunner(VGGSfMRunner):
         reconstruction = self.dicts_to_reconstruction(start_idx, end_idx)
 
         if normalize:
-            reconstruction.normalize(5.0, 0.1, 0.9, True)
+            reconstruction.normalize(extent=5.0, min_percentile=0.1, max_percentile=0.9, use_images=True)
 
         ba_options = pycolmap.BundleAdjustmentOptions()
         pycolmap.bundle_adjustment(reconstruction, ba_options)
 
         observation_manager = pycolmap.ObservationManager(reconstruction)
-        observation_manager.filter_all_points3D(reproj_error, tri_angle)
+        observation_manager.filter_all_points3D(max_reproj_error=reproj_error, min_tri_angle=tri_angle)
         observation_manager.filter_observations_with_negative_depth()
 
         if normalize:
-            reconstruction.normalize(5.0, 0.1, 0.9, True)
+            reconstruction.normalize(extent=5.0, min_percentile=0.1, max_percentile=0.9, use_images=True)
 
         intrinsics_opt = torch.from_numpy(reconstruction.cameras[0].calibration_matrix()).to(self.device).float()
         self.intrinsics = intrinsics_opt[None].clone()  # 1x3x3
 
-        if self.cfg.camera_type == 'SIMPLE_RADIAL':
+        if self.camera_type == CameraModelId.SIMPLE_RADIAL:
             extra_params_opt = torch.from_numpy(reconstruction.cameras[0].params).to(self.device).float()
             self.extra_params = extra_params_opt[-1].reshape(1, 1).clone()  # 1 x num_extra_params
 
@@ -460,9 +462,9 @@ class VideoRunner(VGGSfMRunner):
         points3d_idx_list = sorted(list(self.point_dict.keys()))
         for pidx in points3d_idx_list:
             if extract_color:
-                point_color = np.round(self.point_dict[pidx]['rgb'].numpy() * 255).astype(np.uint8)
+                point_color = np.round(self.point_dict[pidx]['rgb'].numpy() * 255.0).astype(np.uint8)
             else:
-                point_color = np.zeros(3)
+                point_color = np.zeros(3, dtype=np.uint8)
 
             reconstruction.add_point3D(
                 self.point_dict[pidx]['xyz'].numpy(),
@@ -470,21 +472,42 @@ class VideoRunner(VGGSfMRunner):
                 point_color,
             )
 
-        pycam = self.build_camera_for_video()
-        reconstruction.add_camera(pycam)
+        # video runner assumes a single camera
+        camera = self.build_camera_for_video()
+        reconstruction.add_camera(camera)
 
+        # set rig
+        GLOBAL_RIG_ID = 10002
+        rig = pycolmap.Rig(rig_id=GLOBAL_RIG_ID)
+
+        sensor_t = pycolmap.sensor_t()
+        sensor_t.id = camera.camera_id
+        sensor_t.type = pycolmap.SensorType.CAMERA
+        rig.add_ref_sensor(sensor_t)
+
+        reconstruction.add_rig(rig)
+
+        # set frames
         for image_idx in range(start_idx, end_idx):
             cam_from_world = pycolmap.Rigid3d(
                 pycolmap.Rotation3d(self.frame_dict[image_idx]['extri'][:3, :3]),
                 self.frame_dict[image_idx]['extri'][:3, 3],
             )
 
-            pyimg = pycolmap.Image(
-                id=image_idx,
-                name=f'image_{image_idx}',
-                camera_id=pycam.camera_id,
-                cam_from_world=cam_from_world,
+            frame = pycolmap.Frame(
+                frame_id=image_idx,
+                rig_id=rig.rig_id,
             )
+
+            image = pycolmap.Image(
+                image_id=image_idx,
+                name=f'image_{image_idx:04d}',
+                camera_id=camera.camera_id,
+                frame_id=frame.frame_id,
+            )
+            frame.add_data_id(image.data_id)
+            reconstruction.add_frame(frame)
+            reconstruction.frame(frame.frame_id).rig_from_world = cam_from_world
 
             points2D_list = []
 
@@ -500,14 +523,13 @@ class VideoRunner(VGGSfMRunner):
             assert point2D_idx == len(points2D_list)
 
             try:
-                pyimg.points2D = pycolmap.Point2DList(points2D_list)
-                # pyimg.registered = True
+                image.points2D = pycolmap.Point2DList(points2D_list)
+                reconstruction.register_image(frame.frame_id)
             except Exception as e:
-                logging.warning(f'frame {image_idx} is out of BA')
-                print(e)
-                # pyimg.registered = False
+                logging.warning(f'frame {image_idx} is out of BA: {e}')
+                reconstruction.deregister_image(frame.frame_id)
 
-            reconstruction.add_image(pyimg)
+            reconstruction.add_image(image)
 
         return reconstruction
 
@@ -516,7 +538,7 @@ class VideoRunner(VGGSfMRunner):
         assert self.intrinsics is not None, 'Intrinsics must be set before reconstruction_to_dicts'
         for image_id, image in reconstruction.images.items():
             self.frame_dict[image_id]['extri'] = torch.tensor(
-                image.cam_from_world.matrix(),
+                image.cam_from_world().matrix(),
                 dtype=self.intrinsics.dtype,
             )
             self.frame_dict[image_id]['visible_points'] = []
@@ -524,7 +546,7 @@ class VideoRunner(VGGSfMRunner):
         point3D_id = 0
         # Convert reconstruction to point_dict
         for pycolmap_point3D_id in sorted(reconstruction.point3D_ids()):
-            point3D = reconstruction.points3D[pycolmap_point3D_id]
+            point3D = reconstruction.point3D(pycolmap_point3D_id)
             point_dict: dict[str, Any] = {
                 'id': point3D_id,
                 'xyz': torch.from_numpy(point3D.xyz).float(),
@@ -535,7 +557,7 @@ class VideoRunner(VGGSfMRunner):
             for track_element in point3D.track.elements:
                 image_id = track_element.image_id
                 point2D_idx = track_element.point2D_idx
-                point2D = reconstruction.images[image_id].points2D[point2D_idx]
+                point2D = reconstruction.image(image_id).points2D[point2D_idx]
 
                 point_dict['track'][image_id] = {
                     'uv': torch.tensor(point2D.xy, dtype=torch.float32),
@@ -673,7 +695,7 @@ class VideoRunner(VGGSfMRunner):
             window_inlier_masks_all,
             self.image_size,
             shared_camera=self.cfg.shared_camera,
-            camera_type=self.cfg.camera_type,
+            camera_type=self.camera_type,
             extra_params=self.extra_params.expand(window_size + 1, -1),
         )
         if rec.num_points3D() == 0:
@@ -690,7 +712,7 @@ class VideoRunner(VGGSfMRunner):
             ba_config.add_image(image_id)
 
         # Fix frame 0, i.e, the end frame of the last window
-        ba_config.set_constant_cam_pose(list(rec.reg_image_ids())[0])
+        ba_config.set_constant_rig_from_world_pose(list(rec.reg_image_ids())[0])
 
         for fixp_idx in rec.point3D_ids():
             if fixp_idx < (exist_points_3D_num + 1):
@@ -706,8 +728,8 @@ class VideoRunner(VGGSfMRunner):
 
         window_points3D_opt, extrinsics, _, _ = pycolmap_to_batch_matrix(
             rec,
-            device=self.device,
-            camera_type=window_points_all.dtype,
+            device=self.device.type,
+            camera_type=self.camera_type,
         )
 
         assert window_points3D_opt.size(0) == window_tracks_all.size(1)
@@ -870,7 +892,7 @@ class VideoRunner(VGGSfMRunner):
         return refined_extrinsics
 
     def build_camera_for_video(self):
-        if self.cfg.camera_type == 'SIMPLE_RADIAL':
+        if self.camera_type == CameraModelId.SIMPLE_RADIAL:
             pycolmap_intri = np.array(
                 [
                     self.intrinsics[0][0, 0].item(),
@@ -878,29 +900,30 @@ class VideoRunner(VGGSfMRunner):
                     self.intrinsics[0][1, 2].item(),
                     self.extra_params[0][0].item(),
                 ],
-                dtype=np.float32,
+                dtype=np.float64,
             )
-        elif self.cfg.camera_type == 'SIMPLE_PINHOLE':
+        elif self.camera_type == CameraModelId.SIMPLE_PINHOLE:
             pycolmap_intri = np.array(
                 [
                     self.intrinsics[0][0, 0].item(),
                     self.intrinsics[0][0, 2].item(),
                     self.intrinsics[0][1, 2].item(),
                 ],
-                dtype=np.float32,
+                dtype=np.float64,
             )
         else:
-            raise NotImplementedError(f'Camera type {self.cfg.camera_type} not implemented')
+            raise NotImplementedError(f'Camera type {self.camera_type} not implemented')
 
         # We assume the same camera for all frames in a video
-        pycam = pycolmap.Camera(
-            model=self.cfg.camera_type,
+        camera = pycolmap.Camera(
+            camera_id=0,
+            model=self.camera_type,
             width=self.image_size[0],
             height=self.image_size[1],
             params=pycolmap_intri,
-            camera_id=0,
         )
-        return pycam
+
+        return camera
 
     def prepare_window_data(
         self,
