@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import math
+import logging
 from itertools import combinations
 
 import numpy as np
@@ -56,10 +56,7 @@ def triangulate_multi_view_point_batched(
     num_A_batch = len(A)
     MAX_CUSOLVER_STATUS_INVALID_VALUE = 1024000
     if num_A_batch > MAX_CUSOLVER_STATUS_INVALID_VALUE:
-        # print(
-        #     "A too big matrix for torch.linalg.eigh(); It will meet CUSOLVER_STATUS_INVALID_VALUE ERROR; Make it happy by spliting the matrix to several ones"
-        # )
-        num_runs = math.ceil(num_A_batch / MAX_CUSOLVER_STATUS_INVALID_VALUE)
+        num_runs = int(np.ceil(num_A_batch / MAX_CUSOLVER_STATUS_INVALID_VALUE))
         eigenvectors_list = []
         for run_idx in range(num_runs):
             start_idx = run_idx * MAX_CUSOLVER_STATUS_INVALID_VALUE
@@ -381,8 +378,8 @@ def cam_from_img(pred_tracks, intrinsics, extra_params=None):
         # Apply iterative undistortion
         try:
             tracks_normalized = iterative_undistortion(extra_params, tracks_normalized)
-        except Exception as e:
-            print(f'Error occurred during iterative undistortion: {e}')
+        except Exception:
+            logging.warning('Iterative undistortion failed. Switch to single undistortion.')
             tracks_normalized = single_undistortion(extra_params, tracks_normalized)
 
     return tracks_normalized
@@ -514,8 +511,8 @@ def calculate_triangulation_angle(proj_center1, proj_center2, point3D, eps=1e-12
     cos_angle = nominator / denominator
     cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
     triangles = torch.abs(torch.acos(cos_angle))
-    triangles = torch.min(triangles, torch.pi - triangles)
-    triangles = triangles * (180.0 / torch.pi)
+    triangles = torch.min(triangles, np.pi - triangles)
+    triangles = triangles * (180.0 / np.pi)
     return triangles
 
 
@@ -584,7 +581,7 @@ def local_refinement_tri(
     low_mem=True,
 ):
     """
-    Local Refinement for triangulation
+    Local refinement for triangulation
     """
 
     B, N, _ = points1.shape

@@ -1092,13 +1092,13 @@ class VideoRunner(VGGSfMRunner):
     def update_dicts_by_reconstruction(self, reconstruction, start_idx, end_idx):
         # Update dicts by reconstruction
         for image_id, image in reconstruction.images.items():
-            self.frame_dict[image_id]['extri'] = torch.tensor(image.cam_from_world.matrix(), dtype=reconstruction.dtype)
+            self.frame_dict[image_id]['extri'] = torch.Tensor(image.cam_from_world().matrix())
 
         for point3D_id in sorted(self.point_dict.keys()):
             pycolmap_point3D_id = point3D_id + 1
             if pycolmap_point3D_id in reconstruction.point3D_ids():
                 point3D = reconstruction.points3D[pycolmap_point3D_id]
-                self.point_dict[point3D_id]['xyz'] = torch.tensor(point3D.xyz, dtype=torch.float32)
+                self.point_dict[point3D_id]['xyz'] = torch.Tensor(point3D.xyz)
                 visible_frames = []
                 for track_element in point3D.track.elements:
                     visible_frames.append(track_element.image_id)

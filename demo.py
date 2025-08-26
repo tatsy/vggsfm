@@ -16,7 +16,7 @@ from vggsfm.datasets.demo_loader import DemoLoader
 
 
 @torch.no_grad()
-@hydra.main(config_path="cfgs/", config_name="demo", version_base="1.2")
+@hydra.main(config_path='cfgs/', config_name='demo', version_base='1.2')
 def demo_fn(cfg: DictConfig):
     """
     Main function to run the VGGSfM demo. VGGSfMRunner is the main controller.
@@ -25,7 +25,7 @@ def demo_fn(cfg: DictConfig):
 
     # Print configuration
     OmegaConf.set_struct(cfg, False)
-    print("Model Config:", OmegaConf.to_yaml(cfg))
+    print('Model Config:', OmegaConf.to_yaml(cfg))
 
     # Set seed for reproducibility
     seed_all_random_engines(cfg.seed)
@@ -51,10 +51,10 @@ def demo_fn(cfg: DictConfig):
         return_path=True,
     )
 
-    output_dir = batch["scene_dir"]  # which is also cfg.SCENE_DIR for DemoLoader
-    images = batch["image"]
-    masks = batch["masks"] if batch["masks"] is not None else None
-    crop_params = batch["crop_params"] if batch["crop_params"] is not None else None
+    output_dir = batch['scene_dir']  # which is also cfg.SCENE_DIR for DemoLoader
+    images = batch['image']
+    masks = batch['masks'] if batch['masks'] is not None else None
+    crop_params = batch['crop_params'] if batch['crop_params'] is not None else None
 
     # Cache the original images for visualization, so that we don't need to re-load many times
     # original_images = batch["original_images"]
@@ -71,8 +71,8 @@ def demo_fn(cfg: DictConfig):
         output_dir=output_dir,
     )
 
-    print("Demo Finished Successfully")
+    print('Demo Finished Successfully')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     demo_fn()

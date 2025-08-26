@@ -17,7 +17,6 @@ import torch
 import pycolmap
 from pycolmap import CameraModelId
 from lightglue import SIFT, ALIKED, SuperPoint
-from torch.amp import autocast
 from hydra.utils import instantiate
 
 from vggsfm.utils.utils import (
@@ -105,8 +104,7 @@ class VGGSfMRunner(object):
         The model is then moved to the appropriate device and set to evaluation mode.
         """
 
-        print('Building VGGSfM')
-
+        logging.info('Building VGGSfM')
         vggsfm = instantiate(self.cfg.MODEL, _recursive_=False, cfg=self.cfg)
 
         if self.cfg.auto_download_ckpt:
@@ -114,6 +112,7 @@ class VGGSfMRunner(object):
         else:
             checkpoint = torch.load(self.cfg.resume_ckpt)
             vggsfm.load_state_dict(checkpoint, strict=True)
+
         self.vggsfm_model = vggsfm.to(self.device).eval()
         logging.info('VGGSfM built successfully!')
 
@@ -265,7 +264,6 @@ class VGGSfMRunner(object):
         image_paths: list[str] | None = None,
         seq_name: str | None = None,
         output_dir: str = 'outputs',
-        dtype=None,
         back_to_original_resolution: bool = True,
     ):
         """
@@ -294,16 +292,14 @@ class VGGSfMRunner(object):
             dict: A dictionary containing the reconstruction results, including camera parameters and 3D points.
         """
 
-        print(f'Run sparse reconstruction for scene "{seq_name:s}"')
+        logging.info(f'Run sparse reconstruction for scene "{seq_name:s}"')
         batch_num, frame_num, image_dim, height, width = images.size()
         device = images.device
         reshaped_image = images.reshape(batch_num * frame_num, image_dim, height, width)
         visual_dir = os.path.join(output_dir, 'visuals')
-        if dtype is None:
-            dtype = self.dtype
 
         # Find the query frames using DINO or frame names
-        with autocast(device_type=self.device.type, dtype=dtype):
+        with torch.amp.autocast(device_type='cuda', dtype=self.dtype):
             if self.cfg.query_by_midpoint:
                 query_frame_indexes = generate_rank_by_midpoint(frame_num)
             elif self.cfg.query_by_interval:
@@ -370,7 +366,8 @@ class VGGSfMRunner(object):
 
         # Predict tracks
         torch.cuda.empty_cache()
-        with autocast(device_type=self.device.type, dtype=dtype):
+
+        with torch.amp.autocast(device_type='cuda', dtype=self.dtype):
             pred_track, pred_vis, pred_score = predict_tracks(
                 self.cfg.query_method,
                 self.cfg.max_query_pts,
@@ -439,7 +436,8 @@ class VGGSfMRunner(object):
 
         # Perform triangulation and bundle adjustment
         torch.cuda.empty_cache()
-        with autocast(device_type='cuda', dtype=torch.float32):
+
+        with torch.amp.autocast(device_type='cuda', dtype=torch.float32):
             (
                 extrinsics_opencv,
                 intrinsics_opencv,
@@ -548,12 +546,13 @@ class VGGSfMRunner(object):
                 pyimg = reconstruction.images[fname_to_id[fname]]
                 pycam = reconstruction.cameras[pyimg.camera_id]
                 intrinsics_original_res.append(pycam.calibration_matrix())
-            intrinsics_opencv = torch.from_numpy(np.stack(intrinsics_original_res)).to(device)
+            intrinsics_opencv = torch.Tensor(np.stack(intrinsics_original_res)).to(device)
 
+        # NOTE
+        # If not back_to_original_resolution, then intrinsics_opencv
+        # cooresponds to the resized one (e.g., 1024x1024)
         predictions = {}
         predictions['extrinsics_opencv'] = extrinsics_opencv
-        # NOTE! If not back_to_original_resolution, then intrinsics_opencv
-        # cooresponds to the resized one (e.g., 1024x1024)
         predictions['intrinsics_opencv'] = intrinsics_opencv
         predictions['points3D'] = points3D
         predictions['points3D_rgb'] = points3D_rgb
@@ -565,7 +564,6 @@ class VGGSfMRunner(object):
         predictions['pred_vis'] = pred_vis
         predictions['pred_score'] = pred_score
         predictions['valid_tracks'] = valid_tracks
-
         predictions['additional_points_dict'] = additional_points_dict
 
         return predictions

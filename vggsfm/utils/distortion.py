@@ -44,14 +44,14 @@ def iterative_undistortion(
     Returns:
         torch.Tensor: Undistorted normalized tracks tensor.
     """
-    assert params.dim() == 2, "params should be a 2D tensor of shape BxN"
+    assert params.dim() == 2, 'params should be a 2D tensor of shape BxN'
 
-    B, N, _ = tracks_normalized.shape
+    B, N = tracks_normalized.shape[:2]
     u, v = tracks_normalized[..., 0].clone(), tracks_normalized[..., 1].clone()
     original_u, original_v = u.clone(), v.clone()
 
     eps = torch.finfo(u.dtype).eps
-    for idx in range(max_iterations):
+    for _ in range(max_iterations):
         u_undist, v_undist = apply_distortion(params, u, v)
         dx = original_u - u_undist
         dy = original_v - v_undist
@@ -64,18 +64,12 @@ def iterative_undistortion(
         J_10 = (apply_distortion(params, u + step_u, v)[1] - apply_distortion(params, u - step_u, v)[1]) / (2 * step_u)
         J_11 = (apply_distortion(params, u, v + step_v)[1] - apply_distortion(params, u, v - step_v)[1]) / (2 * step_v)
 
-        J = torch.stack(
-            [
-                torch.stack([J_00 + 1, J_01], dim=-1),
-                torch.stack([J_10, J_11 + 1], dim=-1),
-            ],
-            dim=-2,
-        )
+        JJ = torch.stack([J_00 + 1.0, J_01, J_10, J_11 + 1.0], dim=-1).reshape(B, N, 2, 2).double()
+        dxy = torch.stack([dx, dy], dim=-1).double()
+        delta = torch.linalg.solve(JJ, dxy)
 
-        delta = torch.linalg.solve(J, torch.stack([dx, dy], dim=-1))
-
-        u += delta[..., 0]
-        v += delta[..., 1]
+        u += delta[..., 0].to(u.dtype)
+        v += delta[..., 1].to(v.dtype)
 
         if torch.max((delta**2).sum(dim=-1)) < max_step_norm:
             break
@@ -135,7 +129,7 @@ def apply_distortion(extra_params, u, v):
         du = u * radial + 2 * p1[:, None] * uv + p2[:, None] * (r2 + 2 * u2)
         dv = v * radial + 2 * p2[:, None] * uv + p1[:, None] * (r2 + 2 * v2)
     else:
-        raise ValueError("Unsupported number of distortion parameters")
+        raise ValueError('Unsupported number of distortion parameters')
 
     u = u.clone() + du
     v = v.clone() + dv
@@ -143,7 +137,7 @@ def apply_distortion(extra_params, u, v):
     return u, v
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import random
 
     import pycolmap
@@ -162,7 +156,7 @@ if __name__ == "__main__":
         for b in range(B):
             pycolmap_intri = np.array([1, 0, 0, params[b].item()], dtype=np.float32)
             pycam = pycolmap.Camera(
-                model="SIMPLE_RADIAL",
+                model='SIMPLE_RADIAL',
                 width=1,
                 height=1,
                 params=pycolmap_intri,
@@ -172,4 +166,4 @@ if __name__ == "__main__":
             undistorted_tracks_pycolmap = pycam.cam_from_img(tracks_normalized[b].numpy())
             diff = (undistorted_tracks[b] - undistorted_tracks_pycolmap).abs().median()
             max_diff = max(max_diff, diff)
-            print(f"diff: {diff}, max_diff: {max_diff}")
+            print(f'diff: {diff}, max_diff: {max_diff}')

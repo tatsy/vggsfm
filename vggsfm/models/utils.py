@@ -16,9 +16,9 @@ import torch.nn.functional as F
 
 from vggsfm.utils.metric import closed_form_inverse_OpenCV
 from minipytorch3d.cameras import PerspectiveCameras
-from vggsfm.utils.triangulation import create_intri_matrix
 from minipytorch3d.harmonic_embedding import HarmonicEmbedding
 from minipytorch3d.rotation_conversions import matrix_to_quaternion, quaternion_to_matrix
+from vggsfm.utils.triangulation_helpers import create_intri_matrix
 
 EPS = 1e-9
 

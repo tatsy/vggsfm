@@ -5,7 +5,9 @@
     "editor.formatOnType": false,
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.codeActionsOnSave": {
-      "source.organizeImports": "explicit"
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit",
+      "source.organizeImports.isort": "never"
     }
   },
   "notebook.formatOnSave.enabled": true,

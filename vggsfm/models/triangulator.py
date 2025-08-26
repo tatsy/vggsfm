@@ -65,10 +65,10 @@ class Triangulator(nn.Module):
         We use the pred_cameras from camera_predictor but it can be any init.
         Please note pred_tracks are defined in pixels.
         """
-        # for safety
-        torch.cuda.empty_cache()
 
+        # for safety
         device = pred_tracks.device
+        torch.cuda.empty_cache()
         with torch.amp.autocast(device_type='cuda', dtype=torch.float32):
             B, S, _, H, W = images.shape
 
@@ -94,7 +94,6 @@ class Triangulator(nn.Module):
             if shared_camera:
                 fx = intrinsics[:, 0, 0].mean()
                 fy = intrinsics[:, 1, 1].mean()
-
                 intrinsics[:, 0, 0] = fx
                 intrinsics[:, 1, 1] = fy
 
@@ -151,8 +150,7 @@ class Triangulator(nn.Module):
                 init_max_reproj_error=init_max_reproj_error,
                 camera_type=camera_type,
             )
-            print(f'Finished init BA ({len(points3D_init)} points)')
-            assert extrinsics.dtype == torch.float32 and intrinsics.dtype == torch.float32
+            logging.info(f'Finished init BA ({len(points3D_init)} points)')
 
             # Given we have a well-conditioned point cloud,
             # we can optimize all the cameras by absolute pose refinement as in
@@ -173,8 +171,7 @@ class Triangulator(nn.Module):
                 shared_camera=shared_camera,
                 camera_type=camera_type,
             )
-            print('Finished init refine pose')
-            assert extrinsics.dtype == torch.float32 and intrinsics.dtype == torch.float32
+            logging.info('Finished init refine pose')
 
             (
                 points3D,
@@ -196,7 +193,7 @@ class Triangulator(nn.Module):
                 shared_camera=shared_camera,
                 camera_type=camera_type,
             )
-            print(f'Finished track triangulation and BA ({len(points3D)} points)')
+            logging.info(f'Finished track triangulation and BA ({len(points3D)} points)')
 
             if robust_refine > 0:
                 for refine_idx in range(robust_refine):
@@ -239,7 +236,7 @@ class Triangulator(nn.Module):
                         shared_camera=shared_camera,
                         camera_type=camera_type,
                     )
-                    logging.info(f'Finished robust refine {refine_idx} ({len(points3D)} points)')
+                    logging.info(f'Finished robust refinement (iter={refine_idx}, {len(points3D)} points)')
 
             ba_options = pycolmap.BundleAdjustmentOptions()
             ba_options.print_summary = False
@@ -278,13 +275,12 @@ class Triangulator(nn.Module):
                     camera_type=camera_type,
                 )
 
-                logging.info(f'Finished iterative BA {BA_iter} ({len(points3D)} points)')
+                logging.info(f'Finished iterative BA (iter #{BA_iter}, {len(points3D)} points)')
 
                 max_reproj_error = max_reproj_error // 2
                 if max_reproj_error <= 1:
                     max_reproj_error = 1
 
-            rot_BA = extrinsics[:, :3, :3]
             trans_BA = extrinsics[:, :3, 3]
 
             # find the invalid predictions
@@ -298,7 +294,7 @@ class Triangulator(nn.Module):
                 valid_extra_params_mask = (extra_params.abs() <= 1.0).all(-1)
                 valid_param_mask = torch.logical_and(valid_param_mask, valid_extra_params_mask)
 
-            valid_trans_mask = (trans_BA.abs() <= 30).all(-1)
+            valid_trans_mask = (trans_BA.abs() <= 30.0).all(-1)
             valid_frame_mask = torch.logical_and(valid_param_mask, valid_trans_mask)
 
             valid_2D_mask = torch.ones_like(pred_tracks[..., 0]).bool()
