@@ -7,19 +7,13 @@
 
 # Modified from https://github.com/facebookresearch/co-tracker/
 
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from functools import partial
-from typing import Callable
-import collections
-from torch import Tensor
-from itertools import repeat
 
 from ..utils import bilinear_sampler
-
-from ..modules import Mlp, AttnBlock, CrossAttnBlock, ResidualBlock
+from ..modules import AttnBlock, ResidualBlock, CrossAttnBlock
 
 
 class BasicEncoder(nn.Module):
@@ -27,7 +21,7 @@ class BasicEncoder(nn.Module):
         super(BasicEncoder, self).__init__()
 
         self.stride = stride
-        self.norm_fn = "instance"
+        self.norm_fn = 'instance'
         self.in_planes = output_dim // 2
 
         self.norm1 = nn.InstanceNorm2d(self.in_planes)
@@ -39,7 +33,7 @@ class BasicEncoder(nn.Module):
             kernel_size=7,
             stride=2,
             padding=3,
-            padding_mode="zeros",
+            padding_mode='zeros',
         )
         self.relu1 = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(output_dim // 2, stride=1)
@@ -52,16 +46,14 @@ class BasicEncoder(nn.Module):
             output_dim * 2,
             kernel_size=3,
             padding=1,
-            padding_mode="zeros",
+            padding_mode='zeros',
         )
         self.relu2 = nn.ReLU(inplace=True)
         self.conv3 = nn.Conv2d(output_dim * 2, output_dim, kernel_size=1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode="fan_out", nonlinearity="relu"
-                )
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.InstanceNorm2d)):
                 if m.weight is not None:
                     nn.init.constant_(m.weight, 1)
@@ -101,24 +93,22 @@ class BasicEncoder(nn.Module):
 
 
 class ShallowEncoder(nn.Module):
-    def __init__(
-        self, input_dim=3, output_dim=32, stride=1, norm_fn="instance", cfg=None
-    ):
+    def __init__(self, input_dim=3, output_dim=32, stride=1, norm_fn='instance', cfg=None):
         super(ShallowEncoder, self).__init__()
         self.stride = stride
         self.norm_fn = norm_fn
         self.in_planes = output_dim
 
-        if self.norm_fn == "group":
+        if self.norm_fn == 'group':
             self.norm1 = nn.GroupNorm(num_groups=8, num_channels=self.in_planes)
             self.norm2 = nn.GroupNorm(num_groups=8, num_channels=output_dim * 2)
-        elif self.norm_fn == "batch":
+        elif self.norm_fn == 'batch':
             self.norm1 = nn.BatchNorm2d(self.in_planes)
             self.norm2 = nn.BatchNorm2d(output_dim * 2)
-        elif self.norm_fn == "instance":
+        elif self.norm_fn == 'instance':
             self.norm1 = nn.InstanceNorm2d(self.in_planes)
             self.norm2 = nn.InstanceNorm2d(output_dim * 2)
-        elif self.norm_fn == "none":
+        elif self.norm_fn == 'none':
             self.norm1 = nn.Sequential()
 
         self.conv1 = nn.Conv2d(
@@ -127,7 +117,7 @@ class ShallowEncoder(nn.Module):
             kernel_size=3,
             stride=2,
             padding=1,
-            padding_mode="zeros",
+            padding_mode='zeros',
         )
         self.relu1 = nn.ReLU(inplace=True)
 
@@ -138,12 +128,8 @@ class ShallowEncoder(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode="fan_out", nonlinearity="relu"
-                )
-            elif isinstance(
-                m, (nn.BatchNorm2d, nn.InstanceNorm2d, nn.GroupNorm)
-            ):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.InstanceNorm2d, nn.GroupNorm)):
                 if m.weight is not None:
                     nn.init.constant_(m.weight, 1)
                 if m.bias is not None:
@@ -163,20 +149,16 @@ class ShallowEncoder(nn.Module):
         x = self.relu1(x)
 
         tmp = self.layer1(x)
-        x = x + F.interpolate(
-            tmp, (x.shape[-2:]), mode="bilinear", align_corners=True
-        )
+        x = x + F.interpolate(tmp, (x.shape[-2:]), mode='bilinear', align_corners=True)
         tmp = self.layer2(tmp)
-        x = x + F.interpolate(
-            tmp, (x.shape[-2:]), mode="bilinear", align_corners=True
-        )
+        x = x + F.interpolate(tmp, (x.shape[-2:]), mode='bilinear', align_corners=True)
         tmp = None
         x = self.conv2(x) + x
 
         x = F.interpolate(
             x,
             (H // self.stride, W // self.stride),
-            mode="bilinear",
+            mode='bilinear',
             align_corners=True,
         )
 
@@ -184,9 +166,7 @@ class ShallowEncoder(nn.Module):
 
 
 def _bilinear_intepolate(x, stride, H, W):
-    return F.interpolate(
-        x, (H // stride, W // stride), mode="bilinear", align_corners=True
-    )
+    return F.interpolate(x, (H // stride, W // stride), mode='bilinear', align_corners=True)
 
 
 class EfficientUpdateFormer(nn.Module):
@@ -212,16 +192,12 @@ class EfficientUpdateFormer(nn.Module):
         self.num_heads = num_heads
         self.hidden_size = hidden_size
         self.add_space_attn = add_space_attn
-        self.input_transform = torch.nn.Linear(
-            input_dim, hidden_size, bias=True
-        )
+        self.input_transform = torch.nn.Linear(input_dim, hidden_size, bias=True)
         self.flow_head = torch.nn.Linear(hidden_size, output_dim, bias=True)
         self.num_virtual_tracks = num_virtual_tracks
 
         if self.add_space_attn:
-            self.virual_tracks = nn.Parameter(
-                torch.randn(1, num_virtual_tracks, 1, hidden_size)
-            )
+            self.virual_tracks = nn.Parameter(torch.randn(1, num_virtual_tracks, 1, hidden_size))
         else:
             self.virual_tracks = None
 
@@ -250,20 +226,10 @@ class EfficientUpdateFormer(nn.Module):
                 ]
             )
             self.space_point2virtual_blocks = nn.ModuleList(
-                [
-                    CrossAttnBlock(
-                        hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio
-                    )
-                    for _ in range(space_depth)
-                ]
+                [CrossAttnBlock(hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(space_depth)]
             )
             self.space_virtual2point_blocks = nn.ModuleList(
-                [
-                    CrossAttnBlock(
-                        hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio
-                    )
-                    for _ in range(space_depth)
-                ]
+                [CrossAttnBlock(hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(space_depth)]
             )
             assert len(self.time_blocks) >= len(self.space_virtual2point_blocks)
         self.initialize_weights()
@@ -275,7 +241,7 @@ class EfficientUpdateFormer(nn.Module):
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
 
-        def init_weights_vit_timm(module: nn.Module, name: str = ""):
+        def init_weights_vit_timm(module: nn.Module, name: str = ''):
             """ViT weight initialization, original timm impl (for reproducibility)"""
             if isinstance(module, nn.Linear):
                 trunc_normal_(module.weight, std=0.02)
@@ -297,33 +263,20 @@ class EfficientUpdateFormer(nn.Module):
 
         j = 0
         for i in range(len(self.time_blocks)):
-            time_tokens = tokens.contiguous().view(
-                B * N, T, -1
-            )  # B N T C -> (B N) T C
+            time_tokens = tokens.contiguous().view(B * N, T, -1)  # B N T C -> (B N) T C
             time_tokens = self.time_blocks[i](time_tokens)
 
             tokens = time_tokens.view(B, N, T, -1)  # (B N) T C -> B N T C
-            if self.add_space_attn and (
-                i % (len(self.time_blocks) // len(self.space_virtual_blocks))
-                == 0
-            ):
-                space_tokens = (
-                    tokens.permute(0, 2, 1, 3).contiguous().view(B * T, N, -1)
-                )  # B N T C -> (B T) N C
+            if self.add_space_attn and (i % (len(self.time_blocks) // len(self.space_virtual_blocks)) == 0):
+                space_tokens = tokens.permute(0, 2, 1, 3).contiguous().view(B * T, N, -1)  # B N T C -> (B T) N C
                 point_tokens = space_tokens[:, : N - self.num_virtual_tracks]
                 virtual_tokens = space_tokens[:, N - self.num_virtual_tracks :]
 
-                virtual_tokens = self.space_virtual2point_blocks[j](
-                    virtual_tokens, point_tokens, mask=mask
-                )
+                virtual_tokens = self.space_virtual2point_blocks[j](virtual_tokens, point_tokens, mask=mask)
                 virtual_tokens = self.space_virtual_blocks[j](virtual_tokens)
-                point_tokens = self.space_point2virtual_blocks[j](
-                    point_tokens, virtual_tokens, mask=mask
-                )
+                point_tokens = self.space_point2virtual_blocks[j](point_tokens, virtual_tokens, mask=mask)
                 space_tokens = torch.cat([point_tokens, virtual_tokens], dim=1)
-                tokens = space_tokens.view(B, T, N, -1).permute(
-                    0, 2, 1, 3
-                )  # (B T) N C -> B N T C
+                tokens = space_tokens.view(B, T, N, -1).permute(0, 2, 1, 3)  # (B T) N C -> B N T C
                 j += 1
 
         if self.add_space_attn:
@@ -342,7 +295,7 @@ class CorrBlock:
         num_levels=4,
         radius=4,
         multiple_track_feats=False,
-        padding_mode="zeros",
+        padding_mode='zeros',
     ):
         B, S, C, H, W = fmaps.shape
         self.S, self.C, self.H, self.W = S, C, H, W
@@ -373,9 +326,7 @@ class CorrBlock:
 
             dx = torch.linspace(-r, r, 2 * r + 1)
             dy = torch.linspace(-r, r, 2 * r + 1)
-            delta = torch.stack(
-                torch.meshgrid(dy, dx, indexing="ij"), axis=-1
-            ).to(coords.device)
+            delta = torch.stack(torch.meshgrid(dy, dx, indexing='ij'), axis=-1).to(coords.device)
 
             centroid_lvl = coords.reshape(B * S * N, 1, 1, 2) / 2**i
             delta_lvl = delta.view(1, 2 * r + 1, 2 * r + 1, 2)
@@ -399,8 +350,7 @@ class CorrBlock:
             targets_split = targets.split(C // self.num_levels, dim=-1)
             B, S, N, C = targets_split[0].shape
 
-        assert C == self.C
-        assert S == self.S
+        assert C == self.C and S == self.S
 
         fmap1 = targets
 
@@ -410,9 +360,10 @@ class CorrBlock:
             fmap2s = fmaps.view(B, S, C, H * W)  # B S C H W ->  B S C (H W)
             if self.multiple_track_feats:
                 fmap1 = targets_split[i]
+
             corrs = torch.matmul(fmap1, fmap2s)
             corrs = corrs.view(B, S, N, H, W)  # B S N (H W) -> B S N H W
-            corrs = corrs / torch.sqrt(torch.tensor(C).float())
+            corrs = corrs / np.sqrt(C)
             self.corrs_pyramid.append(corrs)
 
 
@@ -452,18 +403,14 @@ class EfficientCorrBlock:
 
             dx = torch.linspace(-r, r, 2 * r + 1, device=device)
             dy = torch.linspace(-r, r, 2 * r + 1, device=device)
-            xgrid, ygrid = torch.meshgrid(dy, dx, indexing="ij")
+            xgrid, ygrid = torch.meshgrid(dy, dx, indexing='ij')
             zgrid = torch.zeros_like(xgrid, device=device)
             delta = torch.stack([zgrid, xgrid, ygrid], axis=-1)
             delta_lvl = delta.view(1, 1, 2 * r + 1, 2 * r + 1, 3)
             coords_lvl = centroid_lvl + delta_lvl
-            pyramid_sample = bilinear_sampler(
-                pyramid.reshape(B * S, C, 1, H, W), coords_lvl
-            )
+            pyramid_sample = bilinear_sampler(pyramid.reshape(B * S, C, 1, H, W), coords_lvl)
 
-            corr = torch.sum(
-                target * pyramid_sample.reshape(B, S, C, N, -1), dim=2
-            )
+            corr = torch.sum(target * pyramid_sample.reshape(B, S, C, N, -1), dim=2)
             corr = corr / torch.sqrt(torch.tensor(C).float())
             out_pyramid.append(corr)
 
